@@ -189,10 +189,10 @@ and the existing progress-tracked pipeline handles it.
 ## Acknowledgements
 
 This project was developed with the help of AI coding assistants — primarily
-[KAT 2.5 dev](https://github.com/KatAi-Corp/Kat) and DeepSeek v4 Flash. Most of
-the architecture, engine implementations, and the web UI were produced through
-collaborative pair-programming with these models, with KAT 2.5 dev doing the
-majority of the heavy lifting.
+[Kwaipilot/KAT-Coder-V2.5-Dev](https://huggingface.co/Kwaipilot/KAT-Coder-V2.5-Dev)
+and DeepSeek v4 Flash. Most of the architecture, engine implementations, and
+the web UI were produced through collaborative pair-programming with these
+models, with KAT-Coder-V2.5-Dev doing the majority of the heavy lifting.
 
 ## License
 
