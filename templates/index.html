@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23f59e0b'/%3E%3Cstop offset='1' stop-color='%23fb7185'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cg fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M7 18v-4'/%3E%3Cpath d='M12 20v-8'/%3E%3Cpath d='M17 21v-10'/%3E%3Cpath d='M22 18v-4'/%3E%3Cpath d='M27 20v-8'/%3E%3C/g%3E%3C/svg%3E">
+<title>Unified TTS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round"><path d="M4 14v-4"/><path d="M9 17V7"/><path d="M14 18V6"/><path d="M19 14v-4"/></svg>
+    </div>
+    <span>Unified TTS</span>
+  </div>
+  <div class="header-right">
+    <div class="device-badge" id="deviceBadge">Detecting…</div>
+    <button class="mode-btn" id="modeBtn" title="Toggle theme" aria-label="Switch to light theme">
+      <span class="theme-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+      </span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <section class="workspace">
+
+    <!-- ══ Left: input column ══ -->
+    <div class="workspace-main">
+
+      <!-- Engine picker -->
+      <div class="engine-tabs" id="engineTabs"></div>
+
+      <!-- Model download panel (shown for the selected engine: Piper always, others when missing) -->
+      <div class="model-panel" id="modelPanel" style="display:none">
+        <div class="model-panel-row">
+          <div class="model-panel-info">
+            <span class="model-panel-title" id="modelTitle">Model not installed</span>
+            <span class="model-panel-sub" id="modelSub"></span>
+          </div>
+          <select id="downloadVoice" class="download-voice" style="display:none" title="Voice to download"></select>
+          <button class="btn btn-primary btn-small" id="downloadModelBtn">Download</button>
+        </div>
+        <div class="progress-track" id="downloadProgress" style="display:none">
+          <div class="progress-fill" id="downloadFill"></div>
+        </div>
+        <div class="model-panel-status" id="downloadStatus"></div>
+      </div>
+
+      <!-- Mode tabs: Single / Batch -->
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="single">Single</button>
+        <button class="mode-tab" data-mode="batch">Batch</button>
+      </div>
+
+      <!-- Single text section -->
+      <div class="card text-section" id="singleSection">
+        <div class="section-label">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Text</span>
+        </div>
+        <textarea id="text" placeholder="Type something to speak…" maxlength="5000"></textarea>
+        <div class="char-count"><span id="charCount">0 / 5000</span></div>
+      </div>
+
+      <!-- Batch text section -->
+      <div class="card text-section" id="batchSection" style="display:none">
+        <div class="section-label">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Batch text — one line per item</span>
+        </div>
+        <textarea id="batchText" placeholder="Enter text for each line (one per line)…" maxlength="50000"></textarea>
+        <div class="char-count"><span id="batchCharCount">0 / 50000</span></div>
+      </div>
+
+      <!-- Controls card -->
+      <div class="card controls">
+        <div class="control-group">
+          <label for="voice">Voice</label>
+          <div class="voice-row">
+            <select id="voice"><option value="">— default —</option></select>
+            <button class="voice-preview-btn" id="previewVoiceBtn" style="display:none">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              Preview
+            </button>
+            <button class="voice-preview-btn" id="registerVoiceBtn" style="display:none">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+              Register voice
+            </button>
+          </div>
+        </div>
+
+        <div class="speed-group">
+          <div class="speed-header">
+            <label>Speed</label>
+            <span class="speed-value" id="speedVal">1.0x</span>
+          </div>
+          <div class="speed-slider-wrap">
+            <span>0.5x</span>
+            <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
+            <span>2.0x</span>
+          </div>
+        </div>
+
+        <div class="pitch-group">
+          <div class="speed-header">
+            <label>Pitch</label>
+            <span class="speed-value" id="pitchVal">0</span>
+          </div>
+          <div class="speed-slider-wrap">
+            <span>-12</span>
+            <input type="range" id="pitch" min="-12" max="12" step="1" value="0">
+            <span>+12</span>
+          </div>
+        </div>
+
+        <div class="format-group">
+          <div class="speed-header">
+            <label>Format</label>
+          </div>
+          <div class="format-select">
+            <select id="format">
+              <option value="wav" selected>WAV</option>
+              <option value="mp3">MP3</option>
+              <option value="flac">FLAC</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Dynamic engine-specific params -->
+        <div id="engineParamsContainer" style="display:none"></div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <button class="btn btn-outline" id="modelsBtn" style="display:none" title="Download TTS models and voices (HuggingFace)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Models
+        </button>
+        <button class="btn btn-primary" id="generateBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Generate
+        </button>
+        <button class="btn btn-outline" id="regenerateBtn" disabled title="Re-run the last generation with the current settings">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+          Regenerate
+        </button>
+        <button class="btn btn-primary" id="batchGenerateBtn" style="display:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Generate All
+        </button>
+        <button class="btn btn-secondary" id="playBtn" disabled>Play</button>
+        <button class="btn btn-outline" id="saveBtn" disabled>Save</button>
+        <button class="btn btn-outline" id="clearBtn">Clear</button>
+      </div>
+    </div>
+
+    <!-- ══ Right: output column ══ -->
+    <aside class="workspace-side">
+
+      <div class="output-card">
+        <div class="output-header">
+          <div class="output-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+            <h2>Output</h2>
+          </div>
+          <span class="output-engine" id="outputEngineBadge">piper</span>
+        </div>
+
+        <!-- Visualizer -->
+        <div class="visualizer-container">
+          <div class="visualizer-hint" aria-hidden="true">
+            <svg width="28" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 13v-2"/><path d="M8 17V7"/><path d="M13 20V4"/><path d="M18 16V8"/><path d="M22 13v-2"/></svg>
+            <span>Generate speech or press Play</span>
+          </div>
+          <canvas id="visualizer"></canvas>
+        </div>
+
+        <!-- Audio player -->
+        <div class="audio-player" id="audioPlayer" style="display:none">
+          <div class="audio-meta" id="audioMeta"></div>
+          <audio id="audio" controls preload="auto"></audio>
+        </div>
+      </div>
+
+      <!-- Recent generations -->
+      <div class="recent-card">
+        <div class="recent-header">
+          <div class="output-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <h2>Recent</h2>
+          </div>
+          <button class="btn btn-outline btn-small" id="openHistoryBtn">
+            History
+          </button>
+        </div>
+        <div class="recent-list" id="recentList"></div>
+      </div>
+    </aside>
+
+  </section>
+</main>
+
+<!-- Status bar -->
+<div class="status-bar">
+  <div class="status-left">
+    <span class="status-icon ok" id="statusIcon">✓</span>
+    <span class="status-msg" id="statusMsg" aria-live="polite">Ready</span>
+  </div>
+  <div class="status-right" id="onlineIndicator"></div>
+</div>
+
+<!-- History panel -->
+<div class="history-overlay" id="historyOverlay"></div>
+<div class="history-panel" id="historyPanel">
+  <div class="history-header">
+    <h3>Generation History</h3>
+    <div class="history-actions">
+      <button class="btn btn-outline btn-small btn-danger" id="cleanHistoryBtn">Clean (30d)</button>
+      <button class="btn btn-outline btn-small" id="closeHistoryBtn">✕</button>
+    </div>
+  </div>
+  <div class="history-list" id="historyList"></div>
+  <div class="history-pagination" id="historyPagination"></div>
+</div>
+
+<!-- Models catalog modal -->
+<div class="modal-overlay" id="modelsOverlay"></div>
+<div class="modal" id="modelsModal" role="dialog" aria-modal="true" aria-labelledby="modelsTitle">
+  <div class="modal-header">
+    <div class="output-title">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <h3 id="modelsTitle">Models</h3>
+    </div>
+    <button class="modal-close" id="modelsCloseBtn" aria-label="Close">✕</button>
+  </div>
+  <div class="modal-body">
+    <p class="modal-sub">Download TTS models from HuggingFace for local engines. Online engines (edge-tts, gtts) work immediately — no download needed.</p>
+    <div id="modelsList"></div>
+  </div>
+</div>
+
+<!-- Voice registration modal -->
+<div class="modal-overlay" id="registerOverlay"></div>
+<div class="modal" id="registerModal" role="dialog" aria-modal="true" aria-labelledby="registerTitle">
+  <div class="modal-header">
+    <div class="output-title">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+      <h3 id="registerTitle">Register custom voice</h3>
+    </div>
+    <button class="modal-close" id="registerCloseBtn" aria-label="Close">✕</button>
+  </div>
+  <div class="modal-body">
+    <p class="modal-sub">Upload a clear voice sample (5–30s, ideally with the full transcription below). The new voice will appear in the Audio8 voice list.</p>
+    <form id="registerForm">
+      <div class="form-group">
+        <label for="regName">Voice name</label>
+        <input type="text" id="regName" placeholder="e.g. my-voice" maxlength="64" required>
+      </div>
+      <div class="form-group">
+        <label for="regText">Transcription</label>
+        <textarea id="regText" placeholder="Exactly what is said in the audio sample…" maxlength="2000" required></textarea>
+      </div>
+      <div class="form-group">
+        <label for="regFile">Audio sample (wav / mp3 / flac / ogg)</label>
+        <input type="file" id="regFile" accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a" required>
+      </div>
+      <label class="form-check">
+        <input type="checkbox" id="regOverwrite">
+        <span>Overwrite existing voice with the same name</span>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="registerCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="registerSubmitBtn">Register voice</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

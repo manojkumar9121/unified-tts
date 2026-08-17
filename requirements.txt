@@ -1,0 +1,29 @@
+# Core web stack
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.0
+
+# Audio processing
+numpy>=1.24
+soundfile>=0.12
+librosa>=0.10          # pitch/speed DSP for Piper (optional if Piper unused, but kept for simplicity)
+pydub>=0.25            # MP3/FLAC conversion (optional at runtime)
+
+# System / process management
+psutil>=5.9
+
+# TTS engines
+piper-tts>=1.2.0       # Piper local ONNX engine
+kokoro-onnx>=0.4.0     # Kokoro local ONNX engine (pulls phonemizer + espeak-ng)
+kittentts>=0.8.1       # Kitten TTS local ONNX engine (~80 MB model)
+edge-tts>=6.1.0        # Microsoft Edge online engine
+gTTS>=2.5.0            # Google Translate online engine
+
+# Audio8 daemon (vendored in audio8_repo/)
+onnxruntime>=1.17      # ONNX Runtime for the Audio8 daemon subprocess
+tokenizers>=0.15       # Audio8 tokenizer
+
+# Optional — used only for GPU/hardware capability detection in the UI.
+# Remove to skip the large CPU-only torch download (~200 MB); the app then
+# simply reports "unknown" for GPU capability.
+# torch>=2.2,<2.7

@@ -1,0 +1,34 @@
+#!/bin/bash
+# Unified TTS launcher
+cd "$(dirname "$0")"
+
+# Activate a virtual environment if one is present: a local .venv takes
+# priority, otherwise reuse an already-activated $VIRTUAL_ENV. If neither
+# exists, fall back to the system python3.
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+elif [ -n "$VIRTUAL_ENV" ] && [ -f "$VIRTUAL_ENV/bin/activate" ]; then
+    source "$VIRTUAL_ENV/bin/activate"
+fi
+
+export PYTHONWARNINGS="ignore::UserWarning"
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
+
+# ─── Pre-flight dependency check ─────────────────────────────────────────────
+# Fail fast when core deps or espeak-ng (needed by Kokoro) are missing.
+# Run `python3 check_deps.py` for a detailed report.
+if ! python3 check_deps.py; then
+    echo ""
+    echo "Install the missing dependencies:"
+    echo "  pip install -r requirements.txt[core]    # web UI + online engines"
+    echo "  pip install -r requirements.txt[local]   # + Piper, Kokoro, Audio8"
+    echo "  pip install -r requirements.txt[online]  # + edge-tts, gTTS"
+    echo "  pip install -r requirements.txt          # everything"
+    echo ""
+    echo "System packages needed for local engines:"
+    echo "  sudo apt install espeak-ng ffmpeg   # Debian/Ubuntu"
+    echo "  sudo dnf install espeak-ng ffmpeg   # Fedora"
+    exit 1
+fi
+
+exec python3 server.py "$@"

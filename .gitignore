@@ -1,0 +1,36 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# --- Runtime data (large / machine-specific) ---
+models/
+audio8_models/
+audio8_voices/
+output/
+data/
+*.pid
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Tool caches ---
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.playwright-mcp/
+node_modules/
+
+# --- OS / editor ---
+.DS_Store
+*.swp
+.idea/
+.vscode/

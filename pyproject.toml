@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unified-tts"
+version = "1.0.0"
+description = "A single web UI for multiple text-to-speech engines — local ONNX and online services"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    # Core web stack + basic audio I/O
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.0",
+    "numpy>=1.24",
+    "soundfile>=0.12",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+# Local ONNX engines (Piper, Kokoro, Audio8) + DSP for pitch/speed
+local = [
+    "librosa>=0.10",
+    "piper-tts>=1.2.0",
+    "kokoro-onnx>=0.4.0",
+    "kittentts>=0.8.1",
+    "onnxruntime>=1.17",
+    "tokenizers>=0.15",
+]
+# Online engines (Microsoft Edge, Google Translate)
+online = [
+    "edge-tts>=6.1.0",
+    "gTTS>=2.5.0",
+]
+# MP3/FLAC export support — requires system ffmpeg
+audio = [
+    "pydub>=0.25",
+]
+# Everything (same as the legacy requirements.txt)
+all = [
+    "unified-tts[local,online,audio]",
+]
+
+[project.scripts]
+unified-tts = "server:main"
+
+[tool.setuptools.packages.find]
+include = ["audio8_repo*"]
