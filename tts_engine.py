@@ -1049,14 +1049,14 @@ class EdgeTTSClient(TTSEngine):
         import edge_tts
 
         async def _run():
-            if not voice:
-                voices = await edge_tts.list_voices()
-                selected = voices[0]["ShortName"] if voices else "en-US-BrianMultilingualNeural"
-            else:
-                selected = voice
+            # NOTE: edge_tts.Communicate.save() only accepts a file *path*, so we
+            # stream the audio chunks ourselves into an in-memory buffer.
+            selected = voice or "en-US-BrianMultilingualNeural"
             communicate = edge_tts.Communicate(text, selected)
             buffer = io.BytesIO()
-            await communicate.save(buffer)  # type: ignore[arg-type]
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    buffer.write(chunk["data"])
             return buffer.getvalue()
 
         data = asyncio.run(_run())
@@ -1080,14 +1080,21 @@ class GTTSClient(TTSEngine):
         return ["google-en"]
 
     def synthesize(self, text: str, voice: str = "", **params) -> tuple[np.ndarray, int]:
-        import io
+        import os
+        import tempfile
 
         from gtts import gTTS
-        tts = gTTS(text=text.strip(), lang="en")
-        buffer = io.BytesIO()
-        tts.save(buffer)
-        buffer.seek(0)
-        audio, sr = sf.read(buffer)
+
+        # gTTS.save() only accepts a file *path* (it does str(savefile) and opens
+        # that as a filename), so write to a real temp file then read it back.
+        lang = params.get("lang", "en")
+        fd, path = tempfile.mkstemp(suffix=".mp3")
+        os.close(fd)
+        try:
+            gTTS(text=text.strip(), lang=lang).save(path)
+            audio, sr = sf.read(path)
+        finally:
+            os.unlink(path)
         return audio, sr
 
 
