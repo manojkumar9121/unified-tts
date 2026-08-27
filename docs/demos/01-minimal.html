@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unified TTS — Minimal</title>
+<style>
+/* ── Design: Minimal / Clean ─────────────────────────────────────────── */
+/* Light, airy, lots of whitespace. Flat surfaces. No gradients, no glows.
+   One accent color used sparingly. */
+
+:root {
+  color-scheme: dark light;
+  --bg: #fafafa;
+  --bg-dark: #0e0e0e;
+  --surface: #ffffff;
+  --surface-dark: #1a1a1a;
+  --border: #e2e2e2;
+  --border-dark: #2a2a2a;
+  --accent: #111111;
+  --accent-light: #333333;
+  --text: #111111;
+  --text-dark: #f0f0f0;
+  --text-muted: #888888;
+  --text-muted-dark: #555555;
+  --radius: 4px;
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+}
+
+[data-theme="dark"] {
+  --bg: var(--bg-dark);
+  --surface: var(--surface-dark);
+  --border: var(--border-dark);
+  --text: var(--text-dark);
+  --text-muted: var(--text-muted-dark);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  transition: background 0.2s, color 0.2s;
+}
+
+/* ── Layout ── */
+.shell {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 40px 24px 120px;
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 48px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.logo {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.theme-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 6px;
+  border-radius: var(--radius);
+  transition: color 0.15s;
+}
+.theme-toggle:hover { color: var(--text); }
+
+/* ── Engine tabs — simple pill row ── */
+.engine-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 32px;
+}
+.engine-pill {
+  padding: 7px 16px;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.engine-pill:hover { border-color: var(--text-muted); color: var(--text); }
+.engine-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+[data-theme="dark"] .engine-pill.active { color: #fff; }
+
+/* ── Textarea ── */
+.input-area { margin-bottom: 24px; }
+.input-area textarea {
+  width: 100%;
+  min-height: 160px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.7;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+.input-area textarea:focus { outline: none; border-color: var(--text); }
+.input-area textarea::placeholder { color: var(--text-muted); }
+.char-count {
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 8px;
+}
+
+/* ── Controls — single row of selects/sliders ── */
+.controls {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 120px;
+}
+.control label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.control select, .control input[type="range"] {
+  width: 100%;
+}
+.control select {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+}
+.control select:focus { outline: none; border-color: var(--text); }
+
+input[type="range"] {
+  accent-color: var(--accent);
+  height: 4px;
+  cursor: pointer;
+}
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
+/* ── Buttons ── */
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 48px;
+}
+.btn {
+  padding: 10px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn:hover { border-color: var(--text); }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+[data-theme="dark"] .btn-primary { color: #fff; }
+.btn-primary:hover { opacity: 0.85; }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Output section ── */
+.output {
+  border-top: 1px solid var(--border);
+  padding-top: 32px;
+}
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.output-header h2 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.engine-tag {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  border-radius: var(--radius);
+}
+
+/* ── Visualizer placeholder ── */
+.visualizer {
+  height: 100px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  position: relative;
+}
+.visualizer canvas { width: 100%; height: 100%; display: block; }
+
+/* ── Audio player ── */
+.audio-player {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.audio-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-bottom: 10px;
+}
+.audio-player audio { width: 100%; height: 36px; }
+
+/* ── Recent list ── */
+.recent {
+  margin-top: 32px;
+  border-top: 1px solid var(--border);
+  padding-top: 24px;
+}
+.recent h3 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.recent-item:hover { opacity: 0.7; }
+.recent-engine {
+  font-size: 9px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  min-width: 64px;
+}
+.recent-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-dur {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ── Footer status ── */
+.status {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  gap: 12px;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+/* ── Demo label ── */
+.demo-label {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 100px;
+  z-index: 10;
+}
+
+@media (max-width: 600px) {
+  .controls { flex-direction: column; }
+  .shell { padding: 24px 16px 120px; }
+}
+</style>
+</head>
+<body>
+
+<div class="demo-label">Design 1 / 4 — Minimal</div>
+
+<div class="shell">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">Unified TTS</div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+    </button>
+  </header>
+
+  <!-- Engine tabs -->
+  <div class="engine-row">
+    <button class="engine-pill active" onclick="selectEngine(this)">piper</button>
+    <button class="engine-pill" onclick="selectEngine(this)">kokoro</button>
+    <button class="engine-pill" onclick="selectEngine(this)">audio8</button>
+    <button class="engine-pill" onclick="selectEngine(this)">edge-tts</button>
+    <button class="engine-pill" onclick="selectEngine(this)">gtts</button>
+  </div>
+
+  <!-- Input -->
+  <div class="input-area">
+    <textarea placeholder="Type something to speak…" maxlength="5000" oninput="updateCount(this)"></textarea>
+    <div class="char-count"><span>0 / 5000</span></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="control">
+      <label>Voice</label>
+      <select>
+        <option value="">— default —</option>
+        <option>en_US-lessa-medium</option>
+        <option>en_US-amy-medium</option>
+        <option>en_GB-daniel-medium</option>
+      </select>
+    </div>
+    <div class="control">
+      <label>Speed</label>
+      <input type="range" min="0.5" max="2.0" step="0.1" value="1.0" oninput="this.parentElement.querySelector('.range-labels span').textContent=this.value+'x'">
+      <div class="range-labels"><span>0.5x</span><span>1.0x</span><span>2.0x</span></div>
+    </div>
+    <div class="control">
+      <label>Pitch</label>
+      <input type="range" min="-12" max="12" step="1" value="0" oninput="this.parentElement.querySelector('.range-labels span').textContent=this.value">
+      <div class="range-labels"><span>-12</span><span>0</span><span>+12</span></div>
+    </div>
+    <div class="control">
+      <label>Format</label>
+      <select>
+        <option>wav</option>
+        <option>mp3</option>
+        <option>flac</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-primary">Generate</button>
+    <button class="btn">Models</button>
+    <button class="btn" disabled>Regenerate</button>
+    <button class="btn" disabled>Play</button>
+    <button class="btn" disabled>Save</button>
+    <button class="btn">Clear</button>
+  </div>
+
+  <!-- Output -->
+  <div class="output">
+    <div class="output-header">
+      <h2>Output</h2>
+      <span class="engine-tag">piper</span>
+    </div>
+    <div class="visualizer">
+      <canvas id="viz"></canvas>
+    </div>
+    <div class="audio-player" id="audioPlayer">
+      <div class="audio-meta">piper · default · 3.42s</div>
+      <audio controls preload="auto"></audio>
+    </div>
+  </div>
+
+  <!-- Recent -->
+  <div class="recent">
+    <h3>Recent</h3>
+    <div class="recent-item">
+      <span class="recent-engine">piper</span>
+      <span class="recent-text">Hello, this is a sample generated by the minimal UI design demo.</span>
+      <span class="recent-dur">3.42s</span>
+    </div>
+    <div class="recent-item">
+      <span class="recent-engine">edge</span>
+      <span class="recent-text">Quick brown fox jumps over the lazy dog.</span>
+      <span class="recent-dur">1.87s</span>
+    </div>
+    <div class="recent-item">
+      <span class="recent-engine">kokoro</span>
+      <span class="recent-text">The sound of silence has a very profound impact.</span>
+      <span class="recent-dur">4.10s</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Status bar -->
+<div class="status">
+  <div class="status-dot"></div>
+  <span>Ready</span>
+  <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;">Ctrl+↵ generate</span>
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+}
+
+function selectEngine(btn) {
+  document.querySelectorAll('.engine-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function updateCount(el) {
+  el.parentElement.querySelector('.char-count span').textContent = el.value.length + ' / 5000';
+}
+
+// Simple static visualizer
+const canvas = document.getElementById('viz');
+const ctx = canvas.getContext('2d');
+function resize() { canvas.width = canvas.offsetWidth * 2; canvas.height = canvas.offsetHeight * 2; }
+resize();
+window.addEventListener('resize', resize);
+
+function drawViz() {
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim();
+  ctx.fillRect(0, 0, w, h);
+  const bars = 40;
+  const bw = w / bars;
+  const c = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
+  for (let i = 0; i < bars; i++) {
+    const amp = 0.2 + 0.5 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.9));
+    const bh = amp * h * 0.7;
+    ctx.fillStyle = c;
+    ctx.globalAlpha = 0.35;
+    ctx.fillRect(i * bw + 2, h / 2 - bh / 2, bw - 4, bh);
+  }
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(drawViz);
+}
+drawViz();
+</script>
+</body>
+</html>

@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unified TTS — Minecraft</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+:root {
+  color-scheme: dark;
+  --bg: #1a1a1a;
+  --surface: #c6c6c6;
+  --surface-dark: #8b8b8b;
+  --surface-darker: #5b5b5b;
+  --border-light: #fff;
+  --border-dark: #3f3f3f;
+  --text: #282828;
+  --text-shadow: #aaa;
+  --grass: #5d9e3e;
+  --dirt: #8b6914;
+  --stone: #7f7f7f;
+  --pixel: 4px;
+  --font: 'VT323', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 16px; }
+
+/* Dirt texture bg */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    repeating-linear-gradient(0deg, transparent, transparent 15px, rgba(0,0,0,0.03) 15px, rgba(0,0,0,0.03) 16px),
+    repeating-linear-gradient(90deg, transparent, transparent 15px, rgba(0,0,0,0.03) 15px, rgba(0,0,0,0.03) 16px),
+    linear-gradient(180deg, #3a2a14 0%, #2a1e0e 100%);
+}
+
+/* ── Minecraft stone button ── */
+.mc-btn {
+  background: var(--surface-dark);
+  border: var(--pixel) solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  cursor: pointer;
+  text-shadow: 2px 2px 0 var(--text-shadow);
+  transition: background 0.05s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+}
+.mc-btn:hover { background: var(--surface); }
+.mc-btn:active {
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  background: var(--surface-darker);
+}
+.mc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.mc-btn:disabled:hover { background: var(--surface-dark); }
+
+/* ── Stone panel ── */
+.stone-box {
+  border: var(--pixel) solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  background: var(--surface);
+  image-rendering: pixelated;
+}
+.stone-box-green {
+  border-color: var(--grass) #4a8a2a #4a8a2a var(--grass);
+  background: #e8f5e0;
+}
+
+.shell { max-width: 800px; margin: 0 auto; padding: 16px 16px 60px; }
+
+/* ── Header ── */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--surface);
+  border: var(--pixel) solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+}
+.logo { font-size: 32px; color: var(--text); text-shadow: 2px 2px 0 var(--border-dark); }
+.logo .ver { font-size: 14px; color: var(--surface-darker); text-shadow: none; margin-left: 8px; }
+.header-right { display: flex; align-items: center; gap: 8px; }
+.host-badge {
+  font-size: 12px;
+  color: var(--surface-darker);
+  padding: 2px 8px;
+  background: var(--surface-dark);
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+}
+
+/* ── Engine tabs — inventory slot style ── */
+.engine-bar {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 14px;
+}
+.engine-tab {
+  flex: 1;
+  padding: 10px 6px;
+  background: var(--surface-dark);
+  border: 3px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 20px;
+  cursor: pointer;
+  text-shadow: 2px 2px 0 var(--text-shadow);
+  text-align: center;
+  letter-spacing: 0.04em;
+  transition: all 0.05s;
+  position: relative;
+}
+.engine-tab:hover { background: var(--surface); }
+.engine-tab:active { border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light); }
+.engine-tab.active {
+  background: linear-gradient(180deg, #6db84a 0%, #5a9e38 50%, #4a8a2a 100%);
+  border-color: #7ec85a #3d6e20 #3d6e20 #7ec85a;
+  color: #fff;
+  text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+}
+.engine-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -7px;
+  left: -3px;
+  right: -3px;
+  height: 5px;
+  background: #4a8a2a;
+  box-shadow: 0 0 8px rgba(93,158,62,0.6);
+}
+.tab-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  vertical-align: middle;
+  background: var(--surface-darker);
+  border: 1px solid var(--border-dark);
+}
+.tab-dot.on { background: var(--grass); border-color: #7ec85a; box-shadow: 0 0 4px var(--grass); }
+.tab-dot.off { background: var(--dirt); border-color: #a07818; }
+
+/* ── Input ── */
+.term-window { margin-bottom: 14px; }
+.term-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--surface-dark);
+  border-bottom: 3px solid var(--border-dark);
+  font-size: 16px;
+  color: var(--text);
+  text-shadow: 1px 1px 0 var(--text-shadow);
+}
+.term-dots { display: flex; gap: 6px; }
+.dot { width: 12px; height: 12px; border: 2px solid; }
+.dot:nth-child(1) { background: #c44; border-color: #e66 #822 #822 #e66; }
+.dot:nth-child(2) { background: #ca4; border-color: #ee6 #862 #862 #ee6; }
+.dot:nth-child(3) { background: #4c4; border-color: #6e6 #282 #282 #6e6; }
+.term-filename { font-size: 12px; color: var(--surface-darker); }
+
+.term-body textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 14px 16px;
+  border: none;
+  background: #1a1a1a;
+  color: #5d9e3e;
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.8;
+  resize: vertical;
+}
+.term-body textarea:focus { outline: none; }
+.term-body textarea::placeholder { color: #3a5a28; }
+
+.term-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 12px;
+  border-top: 3px solid var(--border-dark);
+  font-size: 12px;
+  color: var(--surface-darker);
+  background: var(--surface-dark);
+}
+.cursor {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: #5d9e3e;
+  animation: blink 1s step-end infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:0} }
+
+/* ── Controls ── */
+.ctrl-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  margin-bottom: 14px;
+}
+.ctrl-cell {
+  background: var(--surface);
+  padding: 12px 10px;
+  border: 3px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+}
+.ctrl-label {
+  font-size: 16px;
+  color: var(--text);
+  text-shadow: 1px 1px 0 var(--text-shadow);
+  margin-bottom: 6px;
+  letter-spacing: 0.08em;
+}
+.ctrl-cell select {
+  width: 100%;
+  padding: 4px 6px;
+  background: var(--bg);
+  color: #5d9e3e;
+  font-family: var(--font);
+  font-size: 12px;
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  cursor: pointer;
+}
+.ctrl-cell select:focus { outline: none; }
+.ctrl-val {
+  font-size: 12px;
+  color: #5d9e3e;
+  margin-top: 4px;
+  text-align: right;
+}
+.ctrl-cell input[type="range"] {
+  width: 100%;
+  accent-color: var(--grass);
+  cursor: pointer;
+  height: 6px;
+}
+
+/* ── Actions ── */
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.btn-go { background: var(--grass) !important; color: #fff !important; text-shadow: 2px 2px 0 rgba(0,0,0,0.5) !important; font-size: 18px !important; }
+.btn-go:hover { background: #6db84a !important; }
+.btn-amber { background: var(--dirt) !important; color: #fff !important; text-shadow: 2px 2px 0 rgba(0,0,0,0.5) !important; }
+.btn-amber:hover { background: #a07818 !important; }
+.btn-red { background: #8b2020 !important; color: #fff !important; text-shadow: 2px 2px 0 rgba(0,0,0,0.5) !important; }
+.btn-red:hover { background: #a02828 !important; }
+
+/* ── Output ── */
+.out-window { margin-bottom: 14px; }
+.out-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--surface-dark);
+  border-bottom: 3px solid var(--border-dark);
+  font-size: 16px;
+}
+.out-titlebar .title { color: var(--text); text-shadow: 1px 1px 0 var(--text-shadow); }
+.out-titlebar .meta { font-size: 12px; color: var(--surface-darker); }
+
+.viz-wrap {
+  height: 72px;
+  border-bottom: 3px solid var(--border-dark);
+  background: #0a0a0a;
+  overflow: hidden;
+  position: relative;
+}
+.viz-wrap canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+
+.audio-wrap {
+  display: none;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+.audio-meta { font-size: 12px; color: var(--surface-darker); margin-bottom: 6px; }
+.audio-wrap audio { width: 100%; height: 28px; }
+
+/* ── History ── */
+.hist-window { margin-bottom: 14px; }
+.hist-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--surface-dark);
+  border-bottom: 3px solid var(--border-dark);
+  font-size: 16px;
+}
+.hist-titlebar .title { color: #7ec85a; text-shadow: 1px 1px 0 rgba(0,0,0,0.4); }
+.hist-titlebar .meta { font-size: 12px; color: var(--surface-darker); }
+
+.hist-list { background: var(--surface); }
+.hist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 2px solid var(--surface-dark);
+  cursor: pointer;
+  transition: background 0.05s;
+}
+.hist-item:hover { background: var(--surface-dark); }
+.hist-engine { font-size: 14px; color: var(--dirt); min-width: 48px; }
+.hist-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hist-dur { font-size: 11px; color: var(--surface-darker); }
+
+/* ── Hotbar (status bar) ── */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--surface-darker);
+  background: rgba(0, 0, 0, 0.65);
+  border: var(--pixel) solid;
+  border-color: rgba(255,255,255,0.15) rgba(0,0,0,0.5) rgba(0,0,0,0.5) rgba(255,255,255,0.15);
+  gap: 12px;
+  height: 36px;
+}
+.prompt { color: var(--grass); }
+.dot-live {
+  width: 8px;
+  height: 8px;
+  background: var(--grass);
+  display: inline-block;
+  animation: blink 2s ease-in-out infinite;
+  box-shadow: 0 0 4px var(--grass);
+}
+
+/* ── Demo label ── */
+.demo-label {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  font-size: 14px;
+  color: var(--surface-darker);
+  padding: 4px 10px;
+  background: var(--surface-dark);
+  border: var(--pixel) solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  z-index: 100;
+}
+
+/* ── Light theme (daytime) ── */
+[data-theme="light"] {
+  --bg: #87CEEB;
+  --surface: #c6c6c6;
+  --surface-dark: #a0a0a0;
+  --surface-darker: #707070;
+  --border-light: #fff;
+  --border-dark: #555;
+  --text: #282828;
+  --text-shadow: #bbb;
+  --grass: #4a8a2a;
+}
+[data-theme="light"] body::before {
+  background: linear-gradient(180deg, #6db8ff 0%, #87CEEB 60%, #5a9e38 60%, #4a8a2a 100%);
+}
+[data-theme="light"] .term-body textarea { background: #e0e0e0; color: #2a5a18; }
+[data-theme="light"] .term-body textarea::placeholder { color: #7a9a68; }
+[data-theme="light"] .cursor { background: #4a8a2a; }
+[data-theme="light"] .ctrl-cell select { background: var(--surface-dark); color: #2a5a18; }
+[data-theme="light"] .viz-wrap { background: #b0d0e8; }
+
+@media (max-width: 640px) {
+  .ctrl-grid { grid-template-columns: 1fr 1fr; }
+  .shell { padding: 10px 8px 56px; }
+  .actions { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<div class="demo-label">V0.3 // MINECRAFT</div>
+
+<div class="shell">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">UNIFIED_TTS<span class="ver">v1.0.0</span></div>
+    <div class="header-right">
+      <span class="host-badge">localhost:8000</span>
+      <button class="mc-btn" onclick="toggleTheme()">[ Theme ]</button>
+    </div>
+  </header>
+
+  <!-- Engine tabs -->
+  <div class="engine-bar">
+    <button class="engine-tab active" onclick="pickEngine(this)"><span class="tab-dot on"></span>PIPER</button>
+    <button class="engine-tab" onclick="pickEngine(this)"><span class="tab-dot on"></span>KOKORO</button>
+    <button class="engine-tab" onclick="pickEngine(this)"><span class="tab-dot off"></span>AUDIO8</button>
+    <button class="engine-tab" onclick="pickEngine(this)"><span class="tab-dot on"></span>EDGE-TTS</button>
+    <button class="engine-tab" onclick="pickEngine(this)"><span class="tab-dot on"></span>GTTS</button>
+  </div>
+
+  <!-- Input -->
+  <div class="term-window stone-box">
+    <div class="term-titlebar">
+      <div class="term-dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <span class="term-filename">input.txt — 5000 max</span>
+    </div>
+    <div class="term-body">
+      <textarea placeholder="$ cat input.txt" maxlength="5000" oninput="updateCount(this)"></textarea>
+    </div>
+    <div class="term-footer">
+      <span><span class="cursor"></span>READY</span>
+      <span id="charCount">0 / 5000</span>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="ctrl-grid">
+    <div class="ctrl-cell">
+      <div class="ctrl-label">VOICE</div>
+      <select>
+        <option value="">[ default ]</option>
+        <option>en_US-lessa-medium</option>
+        <option>en_US-amy-medium</option>
+        <option>en_GB-daniel-medium</option>
+      </select>
+    </div>
+    <div class="ctrl-cell">
+      <div class="ctrl-label">SPEED</div>
+      <input type="range" min="0.5" max="2.0" step="0.1" value="1.0" oninput="document.getElementById('sVal').textContent=this.value+'x'">
+      <div class="ctrl-val" id="sVal">1.0x</div>
+    </div>
+    <div class="ctrl-cell">
+      <div class="ctrl-label">PITCH</div>
+      <input type="range" min="-12" max="12" step="1" value="0" oninput="document.getElementById('pVal').textContent=this.value">
+      <div class="ctrl-val" id="pVal">0</div>
+    </div>
+    <div class="ctrl-cell">
+      <div class="ctrl-label">FORMAT</div>
+      <select>
+        <option>wav</option>
+        <option>mp3</option>
+        <option>flac</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="mc-btn btn-go">&gt; GENERATE</button>
+    <button class="mc-btn btn-amber">MODELS</button>
+    <button class="mc-btn" disabled>REGEN</button>
+    <button class="mc-btn" disabled>PLAY</button>
+    <button class="mc-btn" disabled>SAVE</button>
+    <button class="mc-btn btn-red">CLEAR</button>
+  </div>
+
+  <!-- Output -->
+  <div class="out-window stone-box stone-box-green">
+    <div class="out-titlebar">
+      <span class="title">output.wav</span>
+      <span class="meta">engine: piper | sr: 22050</span>
+    </div>
+    <div class="viz-wrap">
+      <canvas id="viz"></canvas>
+    </div>
+    <div class="audio-wrap" id="audioPlayer">
+      <div class="audio-meta">piper · default · 3.42s · 22050Hz</div>
+      <audio controls preload="auto"></audio>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="hist-window stone-box">
+    <div class="hist-titlebar">
+      <span class="title">history.log</span>
+      <span class="meta">5 entries</span>
+    </div>
+    <div class="hist-list">
+      <div class="hist-item">
+        <span class="hist-engine">piper</span>
+        <span class="hist-text">$ echo "Hello, this is a sample from the Minecraft UI"</span>
+        <span class="hist-dur">3.42s</span>
+      </div>
+      <div class="hist-item">
+        <span class="hist-engine">edge</span>
+        <span class="hist-text">$ echo "Quick brown fox jumps over the lazy dog"</span>
+        <span class="hist-dur">1.87s</span>
+      </div>
+      <div class="hist-item">
+        <span class="hist-engine">kokoro</span>
+        <span class="hist-text">$ echo "The sound of silence has a very profound impact"</span>
+        <span class="hist-dur">4.10s</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Hotbar status bar -->
+<div class="status-bar">
+  <span class="prompt">&#9654;</span>
+  <span>ready</span>
+  <span class="dot-live"></span>
+  <span style="margin-left:auto;">ctrl+enter = generate</span>
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme');
+  html.setAttribute('data-theme', current === 'light' ? 'dark' : 'light');
+}
+
+function pickEngine(btn) {
+  document.querySelectorAll('.engine-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function updateCount(el) {
+  document.getElementById('charCount').textContent = el.value.length + ' / 5000';
+}
+
+// ── Pixel visualizer ──
+const canvas = document.getElementById('viz');
+const ctx = canvas.getContext('2d');
+canvas.style.imageRendering = 'pixelated';
+
+function resize() {
+  const w = canvas.offsetWidth;
+  const h = canvas.offsetHeight;
+  canvas.width = Math.floor(w / 4) * 4;
+  canvas.height = Math.floor(h / 4) * 4;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let tick = 0;
+const colors = ['#5d9e3e', '#8b6914', '#7f7f7f', '#c44'];
+const lightColors = ['#4a8a2a', '#a07818', '#999', '#a02828'];
+
+function getColors() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? lightColors : colors;
+}
+
+function draw() {
+  const w = canvas.width, h = canvas.height;
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const bgColor = isLight ? '#b0d0e8' : '#0a0a0a';
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, w, h);
+  const currentColors = getColors();
+
+  const barCount = Math.floor(w / 4);
+  const bw = 3;
+
+  for (let layer = 0; layer < currentColors.length; layer++) {
+    ctx.fillStyle = currentColors[layer];
+    ctx.globalAlpha = 0.2 + layer * 0.12;
+    for (let i = 0; i < barCount; i++) {
+      const t = tick * 0.08;
+      const offset = layer * 4;
+      const raw = Math.sin(i * 0.5 + t + offset) * Math.cos(i * 0.2 + t * 0.6);
+      const amp = 0.1 + 0.35 * Math.abs(raw);
+      const bh = amp * h;
+      const y = h / 2 - bh / 2;
+      const px = Math.floor(i / 4) * 4;
+      ctx.fillRect(px, Math.round(y), bw, Math.round(bh));
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  const scanColor = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.2)';
+  ctx.fillStyle = scanColor;
+  const scanY = (tick * 2) % h;
+  ctx.fillRect(0, scanY, w, 2);
+
+  tick++;
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

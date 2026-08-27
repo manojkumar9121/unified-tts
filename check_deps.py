@@ -14,7 +14,6 @@ from __future__ import annotations
 import importlib.util
 import shutil
 import sys
-from pathlib import Path
 
 # ─── Check groups ─────────────────────────────────────────────────────────────
 # Each tuple: (group_name, display_name, [(import_name, pip_package, install_cmd)])
@@ -46,10 +45,11 @@ AUDIO = [
     ("pydub",         "pydub",          "pip install 'pydub>=0.25'"),
 ]
 
-# System-level checks
+# System-level checks: (binary, display_pkg, install_cmd, fatal)
+# ``fatal`` controls whether a miss fails the whole check.
 SYSTEM = [
-    ("espeak-ng",     None,             "sudo apt install espeak-ng  # Debian/Ubuntu\n  sudo dnf install espeak-ng  # Fedora"),
-    ("ffmpeg",        None,             "sudo apt install ffmpeg  # Debian/Ubuntu\n  sudo dnf install ffmpeg  # Fedora"),
+    ("espeak-ng",     None,             "sudo apt install espeak-ng  # Debian/Ubuntu\n  sudo dnf install espeak-ng  # Fedora", True),
+    ("ffmpeg",        None,             "sudo apt install ffmpeg  # Debian/Ubuntu\n  sudo dnf install ffmpeg  # Fedora", True),
 ]
 
 
@@ -89,9 +89,14 @@ def check(groups: list[tuple], system_checks: list[tuple] | None = None) -> int:
             missing_opt.append(f"  ⚠ {pkg}  —  run: {cmd}")
 
     if system_checks:
-        for bin_name, pkg, cmd in system_checks:
-            if not _check_binary(bin_name):
-                missing_sys.append(f"  ✗ {bin_name}  —  run:\n      {cmd.strip().replace(chr(10), '  ')}")
+        for bin_name, pkg, cmd, *rest in system_checks:
+            # ``fatal`` defaults to True; core mode passes False for
+            # engine-only binaries like espeak-ng.
+            fatal = rest[0] if rest else True
+            if _check_binary(bin_name):
+                continue
+            line = f"  {'✗' if fatal else '⚠'} {bin_name}  —  run:\n      {cmd.strip().replace(chr(10), '  ')}"
+            (missing_sys if fatal else warnings).append(line)
 
     if missing_core:
         _section(missing_core, "❌ Missing (required)")
@@ -101,14 +106,16 @@ def check(groups: list[tuple], system_checks: list[tuple] | None = None) -> int:
         _section(missing_sys, "❌ Missing (system package required for local engines)")
 
     if warnings:
-        print("\n  " + "\n  ".join(warnings))
+        print("\n  ⚠  Optional system packages missing:")
+        for line in warnings:
+            print(f"    {line}")
 
     if missing_core or missing_sys:
         print("\n  Run `pip install -r requirements.txt` (or the specific extras below) to fix.\n")
         return 1
 
     print("\n  ✓ All required dependencies are installed.")
-    if missing_opt:
+    if missing_opt or warnings:
         print("  (optional packages missing — web UI + online engines will work fine)")
     return 0
 
@@ -125,8 +132,12 @@ def main() -> int:
         # Minimal install: web UI + online engines only
         ok = check(CORE)
         check(ONLINE)  # informational only
-        # espeak-ng is only needed for local engines, warn not fail
-        check([], system_checks=[("espeak-ng", None, "  (required only for Kokoro engine)")])
+        # espeak-ng is only needed for the Kokoro engine, ffmpeg only for
+        # MP3/FLAC export — both non-fatal here (fatal=False → warn only).
+        check([], system_checks=[
+            ("espeak-ng", None, "  (required only for the Kokoro engine)", False),
+            ("ffmpeg", None, "  (required only for MP3/FLAC export)", False),
+        ])
         return ok
 
     # Full check

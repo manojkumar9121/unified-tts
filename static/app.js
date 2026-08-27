@@ -23,6 +23,7 @@ const $ = id => document.getElementById(id);
 
 // ── Init ───────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
   await Promise.all([loadEngines(), loadSystem()]);
   renderEngineTabs();
   setupModeTabs();
@@ -33,6 +34,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupRegister();
   setupRecent();
   setupModelPanel();
+  setupShortcuts();
   switchEngine(currentEngine);
 });
 
@@ -47,6 +49,43 @@ async function apiFetch(path, opts = {}) {
     throw new Error(`${res.status}: ${text}`);
   }
   return res.json();
+}
+
+// ── Formatting helpers ─────────────────────────────────────────────────
+function formatDuration(s) {
+  const n = Number(s);
+  if (!isFinite(n)) return '—';
+  return (Math.round(n * 100) / 100) + 's';
+}
+
+// ── Theme ──────────────────────────────────────────────────────────────
+// Persisted in localStorage; an inline <head> script applies it before
+// first paint so there is no dark→light flash on reload.
+function initTheme() {
+  isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  applyThemeIcon();
+}
+
+function applyThemeIcon() {
+  const icon = document.querySelector('.theme-icon');
+  if (icon) {
+    icon.innerHTML = isDark
+      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  }
+  $('modeBtn').setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+}
+
+// ── Keyboard shortcuts ─────────────────────────────────────────────────
+function setupShortcuts() {
+  const gen = $('text');
+  gen.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); doGenerate(); }
+  });
+  const batch = $('batchText');
+  batch.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); doBatchGenerate(); }
+  });
 }
 
 // ── System info & model capability ────────────────────────────────────
@@ -425,6 +464,44 @@ function populateVoices(voices) {
 // ── Dynamic engine params ──────────────────────────────────────────────
 const _engineParamsState = {};  // { engineId: { paramName: value } }
 
+function _paramSliderFill(spec, val) {
+  const min = spec.min ?? 0;
+  const max = spec.max ?? 1;
+  const v = val === null || val === undefined ? min : val;
+  const pct = max > min ? ((v - min) / (max - min)) * 100 : 0;
+  return Math.max(0, Math.min(100, pct));
+}
+
+function _paramRowHtml(name, spec, val) {
+  const display = (val === null || val === undefined) ? 'auto' : val;
+  let control = '';
+  if (spec.type === 'bool') {
+    control = `<label class="param-toggle">
+      <input type="checkbox" data-param="${escHtml(name)}" ${val ? 'checked' : ''}>
+      <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      <span class="toggle-label">${escHtml(spec.label || name)}</span>
+    </label>`;
+  } else if (spec.type === 'str' && spec.options) {
+    control = `<select data-param="${escHtml(name)}">
+      ${spec.options.map(o => `<option value="${escHtml(String(o))}" ${String(o) === String(val) ? 'selected' : ''}>${escHtml(String(o))}</option>`).join('')}
+    </select>`;
+  } else {
+    const step = spec.step ?? (spec.type === 'int' ? 1 : 0.01);
+    // Null-default numeric params (e.g. Piper speaker_id = "auto") render the
+    // slider at its min bound but display "auto" until the user moves it.
+    const sliderVal = (val === null || val === undefined) ? (spec.min ?? 0) : val;
+    const fill = _paramSliderFill(spec, val);
+    control = `<div class="param-slider-group">
+      <input type="range" min="${spec.min ?? 0}" max="${spec.max ?? 1}" step="${step}" value="${sliderVal}" data-param="${escHtml(name)}" style="--fill:${fill}%" data-is-default-null="${val === null || val === undefined ? '1' : ''}">
+      <span class="param-val" data-param-val="${escHtml(name)}">${typeof display === 'number' ? (spec.type === 'int' ? String(Math.round(display)) : display.toFixed(2)) : String(display)}</span>
+    </div>`;
+  }
+  return `<div class="param-row" title="${escHtml(spec.help || '')}">
+    <span class="param-label">${escHtml(spec.label || name)}</span>
+    ${control}
+  </div>`;
+}
+
 function renderEngineParams(eid) {
   const container = $('engineParamsContainer');
   const params = (engineInfo[eid] && engineInfo[eid].params) || {};
@@ -439,46 +516,55 @@ function renderEngineParams(eid) {
   if (!_engineParamsState[eid]) _engineParamsState[eid] = {};
   const state = _engineParamsState[eid];
 
-  container.innerHTML = entries.map(([name, spec]) => {
-    const defaultVal = spec.default ?? (spec.type === 'bool' ? false : null);
-    if (state[name] === undefined) state[name] = defaultVal;
-    const val = state[name];
-    let control = '';
-    if (spec.type === 'bool') {
-      control = `<label class="param-toggle">
-        <input type="checkbox" data-param="${escHtml(name)}" ${val ? 'checked' : ''}>
-        <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        <span class="toggle-label">${escHtml(spec.label || name)}</span>
-      </label>`;
-    } else if (spec.type === 'str' && spec.options) {
-      control = `<select data-param="${escHtml(name)}">
-        ${spec.options.map(o => `<option value="${escHtml(String(o))}" ${String(o) === String(val) ? 'selected' : ''}>${escHtml(String(o))}</option>`).join('')}
-      </select>`;
-    } else {
-      const step = spec.step ?? (spec.type === 'int' ? 1 : 0.01);
-      control = `<div class="param-slider-group">
-        <input type="range" min="${spec.min ?? 0}" max="${spec.max ?? 1}" step="${step}" value="${val}" data-param="${escHtml(name)}">
-        <span class="param-val" data-param-val="${escHtml(name)}">${typeof val === 'number' ? (spec.type === 'int' ? String(Math.round(val)) : val.toFixed(2)) : String(val)}</span>
-      </div>`;
+  entries.forEach(([name, spec]) => {
+    if (state[name] === undefined) state[name] = spec.default ?? (spec.type === 'bool' ? false : null);
+  });
+
+  // Main-group params render inline; "advanced" ones collapse into a
+  // <details> so the common path stays uncluttered.
+  const mainEntries = entries.filter(([, s]) => s.group !== 'advanced');
+  const advEntries = entries.filter(([, s]) => s.group === 'advanced');
+
+  let html = mainEntries.map(([n, s]) => _paramRowHtml(n, s, state[n])).join('');
+  if (advEntries.length) {
+    html += `<details class="param-advanced">
+      <summary>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        Advanced options
+      </summary>
+      <div class="param-advanced-body">
+        ${advEntries.map(([n, s]) => _paramRowHtml(n, s, state[n])).join('')}
+      </div>
+    </details>`;
+  }
+  container.innerHTML = html;
+
+  const updateValSpan = (n, v, spec) => {
+    const valSpan = container.querySelector(`.param-val[data-param-val="${n}"]`);
+    if (valSpan) {
+      valSpan.textContent = (v === null || v === undefined) ? 'auto'
+        : (spec.type === 'int' ? String(Math.round(v)) : v.toFixed(2));
     }
-    return `<div class="param-row">
-      <span class="param-label">${escHtml(spec.label || name)}</span>
-      ${control}
-    </div>`;
-  }).join('');
+  };
 
   // Attach event listeners
   container.querySelectorAll('input[data-param], select[data-param]').forEach(el => {
     el.addEventListener('change', () => {
       const n = el.dataset.param;
       const spec = params[n];
-      _engineParamsState[eid][n] = spec.type === 'bool' ? el.checked : (spec.type === 'int' ? parseInt(el.value, 10) : parseFloat(el.value));
-      // Update value display for sliders
-      const valSpan = container.querySelector(`.param-val[data-param-val="${n}"]`);
-      if (valSpan) {
-        const v = _engineParamsState[eid][n];
-        valSpan.textContent = spec.type === 'int' ? String(Math.round(v)) : v.toFixed(2);
+      if (!spec) return;
+      if (spec.type === 'bool') {
+        _engineParamsState[eid][n] = el.checked;
+      } else if (spec.type === 'int') {
+        _engineParamsState[eid][n] = parseInt(el.value, 10);
+      } else {
+        _engineParamsState[eid][n] = parseFloat(el.value);
       }
+      if (el.type === 'range') {
+        el.style.setProperty('--fill', _paramSliderFill(spec, _engineParamsState[eid][n]) + '%');
+        el.removeAttribute('data-is-default-null');
+      }
+      updateValSpan(n, _engineParamsState[eid][n], spec);
     });
   });
 }
@@ -576,11 +662,11 @@ async function doGenerate() {
     $('audio').src = data.url + '?t=' + Date.now();
     $('playBtn').disabled = false;
     $('saveBtn').disabled = false;
-    $('audioMeta').textContent = `${currentEngine} · ${$('voice').value || 'default'} · ${data.duration}s`;
+    $('audioMeta').textContent = `${currentEngine} · ${$('voice').value || 'default'} · ${formatDuration(data.duration)}`;
     drawVisualizer(data.url);
     updateOutputBadge();
     loadRecent();
-    setStatus('ok', `Generated · ${data.duration}s`);
+    setStatus('ok', `Generated · ${formatDuration(data.duration)}`);
   } catch (e) {
     setStatus('err', e.message);
   }
@@ -610,11 +696,11 @@ async function doRegenerate() {
     $('audio').src = data.url + '?t=' + Date.now();
     $('playBtn').disabled = false;
     $('saveBtn').disabled = false;
-    $('audioMeta').textContent = `${currentEngine} · ${$('voice').value || 'default'} · ${data.duration}s`;
+    $('audioMeta').textContent = `${currentEngine} · ${$('voice').value || 'default'} · ${formatDuration(data.duration)}`;
     drawVisualizer(data.url);
     updateOutputBadge();
     loadRecent();
-    setStatus('ok', `Regenerated · ${data.duration}s`);
+    setStatus('ok', `Regenerated · ${formatDuration(data.duration)}`);
   } catch (e) {
     setStatus('err', e.message);
   }
@@ -641,11 +727,20 @@ async function doBatchGenerate() {
       }),
     });
     if (!resp.ok) throw new Error(await resp.text());
+    // The server reports partial failures via headers + a _manifest.json
+    // inside the zip, so a bad item no longer fails silently.
+    const failed = parseInt(resp.headers.get('X-Batch-Failed') || '0', 10);
+    const dropped = parseInt(resp.headers.get('X-Batch-Dropped') || '0', 10);
     const url = URL.createObjectURL(await resp.blob());
     const a = document.createElement('a');
     a.href = url; a.download = 'batch.zip'; a.click();
     URL.revokeObjectURL(url);
-    setStatus('ok', 'Batch complete · downloaded');
+    let msg = 'Batch complete · downloaded';
+    const notes = [];
+    if (failed) notes.push(`${failed} item${failed > 1 ? 's' : ''} failed (see _manifest.json)`);
+    if (dropped) notes.push(`${dropped} dropped over the 100-item limit`);
+    if (notes.length) { msg += ' — ' + notes.join(', '); setStatus('warn', msg); }
+    else setStatus('ok', msg);
   } catch (e) {
     setStatus('err', e.message);
   }
@@ -660,10 +755,17 @@ async function previewVoice() {
     const data = await apiFetch(
       `/api/audio-preview?engine_id=${encodeURIComponent(currentEngine)}&voice=${encodeURIComponent(voice)}`
     );
-    const wavUrl = data.url + '?t=' + Date.now();
-    const a = document.createElement('a');
-    a.href = wavUrl; a.download = 'preview.wav'; a.click();
-    setStatus('ok', 'Preview downloaded');
+    // Play the preview inline in the main player rather than forcing a download
+    currentFilename = data.filename;
+    currentUrl = data.url;
+    $('audioPlayer').style.display = '';
+    $('audio').src = data.url + '?t=' + Date.now();
+    $('playBtn').disabled = false;
+    $('saveBtn').disabled = false;
+    $('audioMeta').textContent = `${currentEngine} · ${voice} · preview`;
+    $('audio').play().catch(() => {});
+    startVisualizer();
+    setStatus('ok', 'Preview playing');
   } catch (e) {
     setStatus('err', e.message);
   }
@@ -720,10 +822,10 @@ function renderRecent(items) {
     return;
   }
   list.innerHTML = items.map(g => `
-    <div class="recent-item" data-fn="${escHtml(g.filename)}" data-url="/output/${escHtml(g.filename)}" title="Play ${escHtml(g.filename)}">
+    <div class="recent-item" data-fn="${escHtml(g.filename)}" data-url="/output/${escHtml(g.filename)}" data-engine="${escHtml(g.engine)}" title="Play ${escHtml(g.filename)}">
       <span class="recent-engine">${escHtml(g.engine)}</span>
       <span class="recent-text">${escHtml(g.text)}</span>
-      <span class="recent-dur">${g.duration}s</span>
+      <span class="recent-dur">${formatDuration(g.duration)}</span>
       <button class="recent-play" title="Play">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
       </button>
@@ -733,19 +835,20 @@ function renderRecent(items) {
     el.addEventListener('click', ev => {
       if (el.classList.contains('recent-play')) ev.stopPropagation();
       const item = el.closest('.recent-item');
-      loadRecentIntoPlayer(item.dataset.fn, item.dataset.url);
+      loadRecentIntoPlayer(item.dataset.fn, item.dataset.url, item.dataset.engine);
     });
   });
 }
 
-function loadRecentIntoPlayer(fn, url) {
+function loadRecentIntoPlayer(fn, url, engine) {
   currentFilename = fn;
   currentUrl = url;
   $('audioPlayer').style.display = '';
   $('audio').src = url + '?t=' + Date.now();
   $('playBtn').disabled = false;
   $('saveBtn').disabled = false;
-  $('audioMeta').textContent = `${currentEngine} · ${fn}`;
+  // Show the engine that produced this clip, not the currently selected tab
+  $('audioMeta').textContent = `${engine || currentEngine} · ${fn}`;
   drawVisualizer(url);
   setStatus('ok', 'Loaded from recent');
 }
@@ -942,17 +1045,12 @@ function drawVisualizer(url) {
   ctx.globalAlpha = 1;
 }
 
-// ── Theme ──────────────────────────────────────────────────────────────
+// ── Theme toggle ───────────────────────────────────────────────────────
 $('modeBtn').addEventListener('click', () => {
   isDark = !isDark;
   document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-  const icon = document.querySelector('.theme-icon');
-  if (icon) {
-    icon.innerHTML = isDark
-      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>'
-      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
-  }
-  $('modeBtn').setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+  try { localStorage.setItem('tts-theme', isDark ? 'dark' : 'light'); } catch {}
+  applyThemeIcon();
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.content = isDark ? '#0a0a0c' : '#f7f6f3';
   if (currentUrl) drawVisualizer(currentUrl);
@@ -1006,7 +1104,7 @@ function renderHistory(items) {
     <div class="history-item">
       <div class="hi-top">
         <span class="hi-engine">${g.engine}</span>
-        <span class="hi-duration">${g.duration}s · ${g.voice || 'default'}</span>
+        <span class="hi-duration">${formatDuration(g.duration)} · ${escHtml(g.voice || 'default')}</span>
       </div>
       <div class="hi-text" title="${escHtml(g.text)}">${escHtml(g.text)}</div>
       <div class="hi-bottom">
@@ -1038,5 +1136,13 @@ async function cleanHistory() {
 }
 
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Escapes &, <, > AND quotes — the quoted forms matter because results are
+  // interpolated into double-quoted HTML attributes (title="…", data-fn="…").
+  // Without them, text containing `"` could break out of an attribute.
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

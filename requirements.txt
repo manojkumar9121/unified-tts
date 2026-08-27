@@ -1,3 +1,10 @@
+# Unified TTS dependencies.
+#
+# NOTE: keep this file in sync with pyproject.toml, which is the canonical
+# dependency spec (tests/test_packaging.py enforces it). This flat list
+# exists so `pip install -r requirements.txt` keeps working without an
+# editable install.
+
 # Core web stack
 fastapi>=0.110
 uvicorn[standard]>=0.29

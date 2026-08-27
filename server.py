@@ -5,17 +5,20 @@ in-process for Piper/Kokoro or in the managed Audio8 background daemon),
 the client only sends text and plays back audio.
 """
 
+import json
+import logging
 import os
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, ClassVar, Iterator, Literal
 
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tts_engine import (
     TTSEngine,
@@ -26,11 +29,20 @@ from tts_engine import (
 from audio8_manager import Audio8ServiceManager
 import model_downloader as md
 
+logger = logging.getLogger("unified_tts.server")
+
 init_db()
 
 BASE_DIR = Path(__file__).parent.resolve()
-OUTPUT_DIR = BASE_DIR / "output"
+OUTPUT_DIR = Path(os.environ.get("TTS_OUTPUT_DIR", BASE_DIR / "output")).resolve()
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+HOST = os.environ.get("TTS_HOST", "127.0.0.1")
+PORT = int(os.environ.get("TTS_PORT", "8000"))
+# Optional shared-secret for /api/* endpoints. When unset the API is open
+# (fine for localhost use); set TTS_API_KEY to require the ``X-API-Key``
+# header on every API call when exposing the server beyond localhost.
+API_KEY = os.environ.get("TTS_API_KEY", "")
 
 AUDIO8_MODEL_DIR = BASE_DIR / "audio8_models"
 AUDIO8_VOICES_DIR = BASE_DIR / "audio8_voices"
@@ -51,6 +63,20 @@ IDLE_UNLOAD_SECONDS = int(os.environ.get("TTS_UNLOAD_IDLE_SECONDS", "300"))
 
 app = FastAPI(title="Unified TTS")
 
+
+@app.middleware("http")
+async def api_key_guard(request: Request, call_next):
+    """Require ``X-API-Key`` on /api/* when TTS_API_KEY is configured.
+
+    The UI page, static assets and /output audio stay open so browser
+    <audio> playback keeps working; only the JSON API is protected.
+    """
+    if API_KEY and request.url.path.startswith("/api/"):
+        if request.headers.get("x-api-key") != API_KEY:
+            return JSONResponse({"detail": "Invalid or missing X-API-Key"}, status_code=401)
+    return await call_next(request)
+
+
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
 
@@ -58,12 +84,17 @@ app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
 # ─── Engine lifecycle (singleton instances + idle auto-unload) ───────────────
 
 _engine_cache: dict[str, TTSEngine] = {}
+_engine_cache_lock = threading.Lock()
 
 
 def get_engine(engine_id: str) -> TTSEngine:
     """Return the singleton engine instance, creating it on first use."""
     if engine_id not in _engine_cache:
-        _engine_cache[engine_id] = create_engine(engine_id, str(OUTPUT_DIR), audio8_manager)
+        # Lock the check-then-create sequence so concurrent requests can't
+        # construct duplicate engine instances.
+        with _engine_cache_lock:
+            if engine_id not in _engine_cache:
+                _engine_cache[engine_id] = create_engine(engine_id, str(OUTPUT_DIR), audio8_manager)
     return _engine_cache[engine_id]
 
 
@@ -90,10 +121,10 @@ def _monitor_loop() -> None:
                     and not eng.busy
                     and now - eng.last_used > IDLE_UNLOAD_SECONDS
                 ):
-                    print(f"[auto-unload] unloading idle engine: {eng.get_engine_id()}")
+                    logger.info("auto-unload: unloading idle engine %s", eng.get_engine_id())
                     eng.unload()
             except Exception:
-                pass
+                logger.exception("auto-unload failed for %s", eng.get_engine_id())
 
 
 threading.Thread(target=_monitor_loop, name="engine-auto-unload", daemon=True).start()
@@ -101,22 +132,29 @@ threading.Thread(target=_monitor_loop, name="engine-auto-unload", daemon=True).s
 
 # ─── Request models ───────────────────────────────────────────────────────────
 
+# Shared bounds for the global speed/pitch controls. The UI sliders stay
+# inside these, but the API clamps them too: an unvalidated speed=1e9 would
+# otherwise reach librosa time-stretch and blow up memory/CPU.
+SpeedField = Field(default=1.0, ge=0.25, le=4.0, description="Speed multiplier")
+PitchField = Field(default=0.0, ge=-24.0, le=24.0, description="Pitch shift (semitones)")
+Format = Literal["wav", "mp3", "flac"]
+
 
 class GenerateRequest(BaseModel):
     text: str
     engine_id: str = "piper"
     voice: str = ""
-    speed: float = 1.0
-    pitch: float = 0.0
-    fmt: str = "wav"
+    speed: float = SpeedField
+    pitch: float = PitchField
+    fmt: Format = "wav"
     params: dict | None = None
 
 
 class RegenerateRequest(BaseModel):
     voice: str | None = None
-    speed: float | None = None
-    pitch: float | None = None
-    fmt: str | None = None
+    speed: float | None = Field(default=None, ge=0.25, le=4.0)
+    pitch: float | None = Field(default=None, ge=-24.0, le=24.0)
+    fmt: Format | None = None
     params: dict | None = None
 
 
@@ -124,21 +162,25 @@ class BatchGenerateRequest(BaseModel):
     texts: list[str]
     engine_id: str = "piper"
     voice: str = ""
-    speed: float = 1.0
-    pitch: float = 0.0
-    fmt: str = "wav"
+    speed: float = SpeedField
+    pitch: float = PitchField
+    fmt: Format = "wav"
     params: dict | None = None
 
     model_config = {"extra": "forbid"}
 
+    MAX_TEXTS: ClassVar[int] = 100
+
     @property
     def safe_texts(self) -> list[str]:
-        """Return stripped, non-empty texts (up to 100)."""
-        return [t.strip() for t in self.texts if t.strip()][:100]
+        """Return stripped, non-empty texts (up to MAX_TEXTS)."""
+        return [t.strip() for t in self.texts if t.strip()][: self.MAX_TEXTS]
 
-
-class SwitchEngineRequest(BaseModel):
-    engine_id: str
+    @property
+    def dropped_count(self) -> int:
+        """How many non-empty lines were cut by the MAX_TEXTS cap."""
+        non_empty = sum(1 for t in self.texts if t.strip())
+        return max(0, non_empty - self.MAX_TEXTS)
 
 
 class DeleteRequest(BaseModel):
@@ -146,14 +188,9 @@ class DeleteRequest(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    @property
-    def safe_filename(self) -> str:
-        """Strip directory components to prevent path traversal."""
-        return Path(self.filename).name
-
 
 class CleanRequest(BaseModel):
-    days: int = 30
+    days: int = Field(default=30, ge=1, le=3650)
 
 
 class ListVoicesRequest(BaseModel):
@@ -169,31 +206,10 @@ class UnloadRequest(BaseModel):
     engine_id: str
 
 
-class DownloadHFRequest(BaseModel):
-    repo: str
-    revision: str = "main"
-    file_pattern: str = ""
-    dest_subdir: str = ""
-    hf_token: str = ""
-
-    model_config = {"extra": "forbid"}
-
-    @property
-    def repo_id(self) -> str:
-        """Normalize and validate the repo identifier."""
-        repo = self.repo.strip()
-        if not repo or "/" not in repo:
-            raise ValueError("repo must be in 'org/repo' form")
-        return repo
-
-    @property
-    def safe_dest_subdir(self) -> str:
-        """Prevent path traversal in dest_subdir."""
-        return Path(self.dest_subdir or "").name
-
-
 # Last successful single generation — powers in-line regeneration.
+# Guarded by a lock: concurrent requests may read/update it concurrently.
 last_generation: dict | None = None
+_last_generation_lock = threading.Lock()
 
 
 # ─── Engine param validation ─────────────────────────────────────────────────
@@ -295,16 +311,6 @@ def list_voices_post(req: ListVoicesRequest):
         raise HTTPException(400, str(e))
 
 
-@app.post("/api/engine/switch")
-def switch_engine(req: SwitchEngineRequest):
-    try:
-        with engine_use(get_engine(req.engine_id)) as eng:
-            voices = eng.list_voices()
-        return {"voices": voices, "is_online": eng.is_online}
-    except Exception as e:
-        raise HTTPException(400, str(e))
-
-
 # ─── Generation endpoints ─────────────────────────────────────────────────────
 
 
@@ -333,14 +339,15 @@ def run_generation(
         )
     filename = Path(filepath).name
     add_generation(filename, text, engine_id, voice, speed, pitch, duration, fmt)
-    last_generation = {
-        "text": text,
-        "engine_id": engine_id,
-        "voice": voice,
-        "speed": speed,
-        "pitch": pitch,
-        "fmt": fmt,
-    }
+    with _last_generation_lock:
+        last_generation = {
+            "text": text,
+            "engine_id": engine_id,
+            "voice": voice,
+            "speed": speed,
+            "pitch": pitch,
+            "fmt": fmt,
+        }
     return filepath, duration, filename, voice, speed, pitch, fmt
 
 
@@ -361,9 +368,10 @@ def generate(req: GenerateRequest):
 def regenerate(req: RegenerateRequest):
     """Re-run the last single generation, optionally with new voice/params."""
     global last_generation
-    if last_generation is None:
+    with _last_generation_lock:
+        base = dict(last_generation) if last_generation else None
+    if base is None:
         raise HTTPException(400, "Nothing to regenerate yet — generate something first")
-    base = last_generation
     try:
         filepath, duration, filename = run_generation(
             engine_id=base["engine_id"],
@@ -405,6 +413,7 @@ def generate_batch(req: BatchGenerateRequest):
         except Exception:
             default_voice = req.voice or ""
 
+    failures: list[dict] = []
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for i, text in enumerate(texts_to_process):
             try:
@@ -416,15 +425,36 @@ def generate_batch(req: BatchGenerateRequest):
                 with open(filepath, "rb") as f:
                     zf.writestr(f"text_{i+1}_{filename}", f.read())
                 add_generation(filename, text, req.engine_id, default_voice, req.speed, req.pitch, duration, req.fmt)
-            except Exception:
-                continue
+            except Exception as exc:
+                # Don't kill the whole batch for one bad item; report it in
+                # the manifest and the X-Batch-Failed header instead.
+                logger.warning("batch item %d failed: %s", i + 1, exc)
+                failures.append({"index": i + 1, "error": str(exc) or exc.__class__.__name__})
+
+        dropped = req.dropped_count
+        if failures or dropped:
+            manifest = {
+                "total_requested": len(req.texts),
+                "processed": len(texts_to_process),
+                "dropped_over_limit": dropped,
+                "failed": failures,
+            }
+            zf.writestr("_manifest.json", json.dumps(manifest, indent=2))
 
     zip_buffer.seek(0)
-    batch_name = f"batch_{int(time.time())}.zip"
+    batch_name = f"batch_{uuid.uuid4().hex[:12]}.zip"
     batch_path = OUTPUT_DIR / batch_name
     with open(batch_path, "wb") as f:
         f.write(zip_buffer.getvalue())
-    return FileResponse(path=str(batch_path), media_type="application/zip", filename=batch_name)
+    return FileResponse(
+        path=str(batch_path),
+        media_type="application/zip",
+        filename=batch_name,
+        headers={
+            "X-Batch-Failed": str(len(failures)),
+            "X-Batch-Dropped": str(dropped),
+        },
+    )
 
 
 @app.get("/api/audio-preview")
@@ -440,10 +470,12 @@ def audio_preview(voice: str = "", engine_id: str = "piper", text: str = "Hello,
         with engine_use(eng):
             audio, sr = eng.preview_voice(voice, text)
         import soundfile as sf
-        timestamp = int(time.time())
-        filepath = OUTPUT_DIR / f"preview_{timestamp}.wav"
+        # uuid suffix: second-granularity timestamps collided when two
+        # previews landed in the same second, silently overwriting one.
+        filename = f"preview_{uuid.uuid4().hex[:12]}.wav"
+        filepath = OUTPUT_DIR / filename
         sf.write(str(filepath), audio, sr)
-        return {"url": f"/output/preview_{timestamp}.wav", "filename": f"preview_{timestamp}.wav"}
+        return {"url": f"/output/{filename}", "filename": filename}
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -451,9 +483,22 @@ def audio_preview(voice: str = "", engine_id: str = "piper", text: str = "Hello,
 # ─── History endpoints ────────────────────────────────────────────────────────
 
 
+def _safe_output_path(filename: str) -> Path | None:
+    """Resolve ``filename`` inside OUTPUT_DIR; None if it escapes it."""
+    safe_name = Path(filename).name
+    if not safe_name or safe_name != filename:
+        return None
+    resolved = (OUTPUT_DIR / safe_name).resolve()
+    if resolved.parent != OUTPUT_DIR.resolve():
+        return None
+    return resolved
+
+
 @app.get("/api/history")
 def history(limit: int = 100, offset: int = 0):
     try:
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
         generations = get_generations(limit=limit, offset=offset)
         return {"generations": generations, "has_more": len(generations) == limit}
     except Exception as e:
@@ -463,16 +508,14 @@ def history(limit: int = 100, offset: int = 0):
 @app.post("/api/history/delete")
 def delete_history(req: DeleteRequest):
     try:
-        safe_name = req.safe_filename
-        if not safe_name:
+        # _safe_output_path rejects directory components ("../x.wav") rather
+        # than silently stripping them, and pins the result inside OUTPUT_DIR.
+        path = _safe_output_path(req.filename)
+        if path is None:
             raise HTTPException(400, "Invalid filename")
-        filepath = OUTPUT_DIR / safe_name
-        resolved = filepath.resolve()
-        if not str(resolved).startswith(str(OUTPUT_DIR.resolve())):
-            raise HTTPException(400, "Invalid filename")
-        if filepath.exists():
-            os.remove(filepath)
-        delete_generation(safe_name)
+        if path.exists():
+            os.remove(path)
+        delete_generation(path.name)
         return {"status": "deleted"}
     except HTTPException:
         raise
@@ -483,8 +526,19 @@ def delete_history(req: DeleteRequest):
 @app.post("/api/history/clean")
 def clean_history(req: CleanRequest):
     try:
-        count = delete_generations_older_than(req.days)
-        return {"deleted": count}
+        # Delete both the DB rows and the audio files they pointed at —
+        # previously only rows went, leaving orphaned files on disk forever.
+        filenames = delete_generations_older_than(req.days)
+        removed = 0
+        for name in filenames:
+            path = _safe_output_path(name)
+            if path and path.exists():
+                try:
+                    os.remove(path)
+                    removed += 1
+                except OSError:
+                    logger.warning("could not remove %s", path)
+        return {"deleted": len(filenames), "files_removed": removed}
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -494,26 +548,14 @@ def clean_history(req: CleanRequest):
 
 @app.get("/api/audio-info")
 def audio_info(filename: str):
-    safe_name = Path(filename).name
-    if not safe_name or safe_name != filename:
+    path = _safe_output_path(filename)
+    if path is None:
         raise HTTPException(400, "Invalid filename")
-    path = OUTPUT_DIR / safe_name
     if not path.exists():
         raise HTTPException(404, "File not found")
     import soundfile as sf
     info = sf.info(str(path))
     return {"duration": round(info.duration, 2), "samplerate": info.samplerate, "channels": info.channels, "format": info.format}
-
-
-@app.post("/api/play")
-def play(filename: str = Query(...)):
-    safe_name = Path(filename).name
-    if not safe_name or safe_name != filename:
-        raise HTTPException(400, "Invalid filename")
-    path = OUTPUT_DIR / safe_name
-    if not path.exists():
-        raise HTTPException(404, "File not found")
-    return {"status": "playing"}
 
 
 # ─── Model download endpoints ─────────────────────────────────────────────────
@@ -758,6 +800,12 @@ def _cpu_name() -> str | None:
     return None
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Console-script entry point (``unified-tts``) and ``python server.py``."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+
+
+if __name__ == "__main__":
+    main()

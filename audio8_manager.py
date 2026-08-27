@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json as _json
+import logging
 import os
 import signal
 import subprocess
@@ -10,6 +11,13 @@ import time
 from pathlib import Path
 
 import urllib.request
+
+logger = logging.getLogger("unified_tts.audio8")
+
+# How long a successful health check may be cached before is_running()
+# probes the daemon again. Every HTTP helper calls is_running(), so without
+# this cache each request could pay up to a 3s network timeout.
+HEALTH_TTL_SECONDS = 5.0
 
 
 class _HttpResponse:
@@ -44,6 +52,13 @@ class Audio8ServiceManager:
         self._proc: subprocess.Popen | None = None
         self._adopted_pid: int | None = None  # PID of a daemon we found already running
         self._pidfile = Path("/tmp/audio8_unified_tts.pid")
+        self._healthy_until: float = 0.0  # monotonic deadline for cached health
+
+    def _mark_healthy(self) -> None:
+        self._healthy_until = time.monotonic() + HEALTH_TTL_SECONDS
+
+    def _health_cached(self) -> bool:
+        return time.monotonic() < self._healthy_until
 
     # ── daemon detection ─────────────────────────────────────────────────────
 
@@ -69,10 +84,14 @@ class Audio8ServiceManager:
 
     def is_running(self) -> bool:
         if self._proc and self._proc.poll() is None:
+            self._mark_healthy()
+            return True
+        if self._health_cached():
             return True
         if self._adopted_pid is not None:
             try:
                 os.kill(self._adopted_pid, 0)
+                self._mark_healthy()
                 return True
             except (ProcessLookupError, PermissionError):
                 self._adopted_pid = None
@@ -82,6 +101,7 @@ class Audio8ServiceManager:
                 pid = int(self._pidfile.read_text().strip())
                 os.kill(pid, 0)
                 self._adopted_pid = pid
+                self._mark_healthy()
                 return True
             except (ProcessLookupError, ValueError, PermissionError):
                 pass
@@ -89,6 +109,7 @@ class Audio8ServiceManager:
         try:
             with urllib.request.urlopen(f"{self.url}/api/health", timeout=3) as r:
                 if r.status == 200:
+                    self._mark_healthy()
                     if self._adopted_pid is None:
                         self._adopted_pid = self._find_daemon_pid()
                         if self._adopted_pid is not None:
@@ -139,7 +160,7 @@ class Audio8ServiceManager:
             )
             self._pidfile.write_text(str(self._proc.pid))
         except Exception as e:
-            print(f"Failed to start Audio8 service: {e}")
+            logger.error("Failed to start Audio8 service: %s", e)
             return False
 
         return self._wait_for_health(timeout=90)
@@ -167,6 +188,7 @@ class Audio8ServiceManager:
                     pass
         self._proc = None
         self._adopted_pid = None
+        self._healthy_until = 0.0
         self._pidfile.unlink(missing_ok=True)
 
     def get_client(self):
@@ -201,6 +223,7 @@ class Audio8ServiceManager:
             try:
                 with urllib.request.urlopen(f"{self.url}/api/health", timeout=1) as r:
                     if r.status == 200:
+                        self._mark_healthy()
                         return True
             except Exception:
                 pass

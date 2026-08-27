@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unified TTS — Terminal</title>
+<style>
+/* ── Design: Terminal / Cyber ────────────────────────────────────────── */
+/* Monospace throughout. High contrast. Scanline overlay. Green-on-black
+   meets amber. Feels like a pro tool for people who know what they're doing. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0a0e14;
+  --bg-surface: #0d1117;
+  --bg-elevated: #161b22;
+  --border: #21262d;
+  --border-bright: #30363d;
+  --text: #c9d1d9;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-green: #3fb950;
+  --accent-amber: #d29922;
+  --accent-red: #f85149;
+  --font: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+  --radius: 0px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+
+/* Scanline overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 999;
+}
+
+.shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 20px 100px;
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.logo {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-green);
+  letter-spacing: 0.02em;
+}
+.logo span { color: var(--text-muted); font-weight: 400; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.host-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+}
+
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 5px 8px;
+  font-family: var(--font);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Engine tabs — terminal-style row ── */
+.engine-row {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+.engine-pill {
+  flex: 1;
+  padding: 9px 14px;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+  letter-spacing: 0.02em;
+}
+.engine-pill:last-child { border-right: none; }
+.engine-pill:hover { background: var(--bg-elevated); color: var(--text); }
+.engine-pill.active {
+  background: var(--bg-elevated);
+  color: var(--accent-green);
+  border-bottom: 2px solid var(--accent-green);
+}
+.engine-pill .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+.dot-online { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+.dot-offline { background: var(--accent-amber); }
+
+/* ── Terminal window for text input ── */
+.terminal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.terminal-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.terminal-dots {
+  display: flex;
+  gap: 6px;
+}
+.terminal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border-bright);
+}
+.terminal-dot:nth-child(1) { background: #ff5f57; }
+.terminal-dot:nth-child(2) { background: #febc2e; }
+.terminal-dot:nth-child(3) { background: #28c840; }
+
+.terminal textarea {
+  width: 100%;
+  min-height: 150px;
+  padding: 16px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.75;
+  resize: vertical;
+}
+.terminal textarea:focus { outline: none; }
+.terminal textarea::placeholder { color: var(--text-muted); }
+.terminal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.cursor-blink {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: var(--accent-green);
+  animation: blink 1s step-end infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* ── Controls panel ── */
+.controls-panel {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.ctrl-cell {
+  background: var(--bg-surface);
+  padding: 16px;
+}
+.ctrl-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.ctrl-value {
+  font-size: 11px;
+  color: var(--accent-amber);
+  font-family: var(--font);
+  margin-top: 6px;
+}
+.ctrl-cell select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border-bright);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ctrl-cell select:focus { outline: none; border-color: var(--accent); }
+.ctrl-cell input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent-green);
+  cursor: pointer;
+}
+
+/* ── Buttons ── */
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+.btn {
+  padding: 9px 18px;
+  border: 1px solid var(--border-bright);
+  background: var(--bg-surface);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn:active { background: var(--bg-elevated); }
+.btn-primary {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+  color: #0a0e14;
+  font-weight: 700;
+}
+.btn-primary:hover { background: #2ea043; border-color: #2ea043; color: #0a0e14; }
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* ── Output ── */
+.output-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.output-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.output-titlebar span:first-child { color: var(--accent-green); font-weight: 700; }
+.output-titlebar span:last-child { color: var(--text-muted); font-size: 10px; }
+
+.visualizer {
+  height: 80px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  position: relative;
+}
+.visualizer canvas { width: 100%; height: 100%; display: block; }
+
+.audio-player {
+  display: none;
+  padding: 12px 14px;
+}
+.audio-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.audio-player audio { width: 100%; height: 34px; }
+
+/* ── Recent ── */
+.recent-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+.recent-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.recent-titlebar span:first-child { color: var(--accent-green); font-weight: 700; }
+.recent-list { padding: 4px; }
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.recent-item:hover { background: var(--bg-elevated); }
+.recent-engine {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--accent-amber);
+  min-width: 52px;
+}
+.recent-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-dur {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Footer ── */
+.status {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  gap: 14px;
+}
+.status-prompt { color: var(--accent-green); }
+.status-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-green);
+  display: inline-block;
+}
+.demo-label {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  z-index: 10;
+}
+
+@media (max-width: 700px) {
+  .controls-panel { grid-template-columns: 1fr 1fr; }
+  .shell { padding: 0 12px 100px; }
+}
+</style>
+</head>
+<body>
+
+<div class="demo-label">$ design 3/4 terminal</div>
+
+<div class="shell">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">unified-tts <span>v1.0.0</span></div>
+    <div class="header-right">
+      <span class="host-badge">localhost:8000</span>
+      <button class="theme-toggle" onclick="toggleTheme()">◐ toggle</button>
+    </div>
+  </header>
+
+  <!-- Engine tabs -->
+  <div class="engine-row">
+    <button class="engine-pill active" onclick="selectEngine(this)"><span class="dot dot-online"></span>piper</button>
+    <button class="engine-pill" onclick="selectEngine(this)"><span class="dot dot-online"></span>kokoro</button>
+    <button class="engine-pill" onclick="selectEngine(this)"><span class="dot dot-offline"></span>audio8</button>
+    <button class="engine-pill" onclick="selectEngine(this)"><span class="dot dot-online"></span>edge-tts</button>
+    <button class="engine-pill" onclick="selectEngine(this)"><span class="dot dot-online"></span>gtts</button>
+  </div>
+
+  <!-- Terminal input -->
+  <div class="terminal">
+    <div class="terminal-titlebar">
+      <div class="terminal-dots"><div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div></div>
+      <span>input.txt</span>
+    </div>
+    <textarea placeholder="$ echo 'Type something to speak...' > input.txt" maxlength="5000" oninput="updateCount(this)"></textarea>
+    <div class="terminal-footer">
+      <span><span class="cursor-blink"></span>ready</span>
+      <span id="charCount">0 / 5000</span>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls-panel">
+    <div class="ctrl-cell">
+      <div class="ctrl-label">Voice</div>
+      <select>
+        <option value="">— default —</option>
+        <option>en_US-lessa-medium</option>
+        <option>en_US-amy-medium</option>
+        <option>en_GB-daniel-medium</option>
+      </select>
+    </div>
+    <div class="ctrl-cell">
+      <div class="ctrl-label">Speed</div>
+      <input type="range" min="0.5" max="2.0" step="0.1" value="1.0" oninput="document.getElementById('speedV').textContent=this.value+'x'">
+      <div class="ctrl-value" id="speedV">1.0x</div>
+    </div>
+    <div class="ctrl-cell">
+      <div class="ctrl-label">Pitch</div>
+      <input type="range" min="-12" max="12" step="1" value="0" oninput="document.getElementById('pitchV').textContent=this.value">
+      <div class="ctrl-value" id="pitchV">0</div>
+    </div>
+    <div class="ctrl-cell">
+      <div class="ctrl-label">Format</div>
+      <select>
+        <option>wav</option>
+        <option>mp3</option>
+        <option>flac</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-primary">$ generate</button>
+    <button class="btn">models</button>
+    <button class="btn" disabled>regenerate</button>
+    <button class="btn" disabled>play</button>
+    <button class="btn" disabled>save</button>
+    <button class="btn">clear</button>
+  </div>
+
+  <!-- Output -->
+  <div class="output-panel">
+    <div class="output-titlebar">
+      <span>output.wav</span>
+      <span>engine: piper · sr: 22050</span>
+    </div>
+    <div class="visualizer">
+      <canvas id="viz"></canvas>
+    </div>
+    <div class="audio-player" id="audioPlayer">
+      <div class="audio-meta">piper · default · 3.42s · 22050Hz</div>
+      <audio controls preload="auto"></audio>
+    </div>
+  </div>
+
+  <!-- Recent -->
+  <div class="recent-panel">
+    <div class="recent-titlebar">
+      <span>history.log</span>
+      <span>5 entries</span>
+    </div>
+    <div class="recent-list">
+      <div class="recent-item">
+        <span class="recent-engine">piper</span>
+        <span class="recent-text">$ echo "Hello, this is a sample from the terminal UI demo"</span>
+        <span class="recent-dur">3.42s</span>
+      </div>
+      <div class="recent-item">
+        <span class="recent-engine">edge</span>
+        <span class="recent-text">$ echo "Quick brown fox jumps over the lazy dog"</span>
+        <span class="recent-dur">1.87s</span>
+      </div>
+      <div class="recent-item">
+        <span class="recent-engine">kokoro</span>
+        <span class="recent-text">$ echo "The sound of silence has a very profound impact"</span>
+        <span class="recent-dur">4.10s</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Status -->
+<div class="status">
+  <span class="status-prompt">➜</span>
+  <span>ready</span>
+  <span style="margin-left:auto;color:var(--text-muted);">ctrl+enter → generate</span>
+</div>
+
+<script>
+function toggleTheme() {
+  document.body.style.filter = document.body.style.filter === 'invert(1) hue-rotate(180deg)' ? '' : 'invert(1) hue-rotate(180deg)';
+}
+function selectEngine(btn) {
+  document.querySelectorAll('.engine-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function updateCount(el) {
+  document.getElementById('charCount').textContent = el.value.length + ' / 5000';
+}
+
+// Animated visualizer
+const canvas = document.getElementById('viz');
+const ctx = canvas.getContext('2d');
+function resize() { canvas.width = canvas.offsetWidth * 2; canvas.height = canvas.offsetHeight * 2; }
+resize();
+window.addEventListener('resize', resize);
+
+let t = 0;
+function draw() {
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, w, h);
+  const green = '#3fb950';
+  ctx.strokeStyle = green;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  const bars = 60;
+  for (let i = 0; i < bars; i++) {
+    const x = (w / bars) * i;
+    const amp = 0.15 + 0.45 * Math.abs(Math.sin(i * 0.3 + t) * Math.cos(i * 0.17 + t * 0.7));
+    const y = h / 2 - amp * h * 0.45;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  // Mirror
+  ctx.globalAlpha = 0.2;
+  ctx.beginPath();
+  for (let i = 0; i < bars; i++) {
+    const x = (w / bars) * i;
+    const amp = 0.15 + 0.45 * Math.abs(Math.sin(i * 0.3 + t) * Math.cos(i * 0.17 + t * 0.7));
+    const y = h / 2 + amp * h * 0.45;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  t += 0.06;
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

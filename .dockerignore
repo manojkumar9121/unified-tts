@@ -1,0 +1,25 @@
+# Never bake runtime/user data into the image
+models/
+audio8_models/
+audio8_voices/
+output/
+data/
+*.pid
+*.log
+
+# Dev environment / caches
+.git/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.playwright-mcp/
+
+# Local docs & tooling
+docs/
+.github/
+Dockerfile
+.dockerignore

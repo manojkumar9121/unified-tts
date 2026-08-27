@@ -19,21 +19,28 @@ Architecture
 
 import gc
 import io
+import logging
 import os
 import re
 import sqlite3
+import threading
 import time
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import soundfile as sf
 
+logger = logging.getLogger("unified_tts.engine")
+
 BASE_DIR = Path(__file__).parent.resolve()
 MODELS_DIR = BASE_DIR / "models"
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+# TTS_DATA_DIR lets tests (or unusual installs) redirect the SQLite history
+# away from the repo's data/ directory.
+DATA_DIR = Path(os.environ.get("TTS_DATA_DIR") or (BASE_DIR / "data"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "generations.db"
 
 # Gap (seconds) inserted between sentence chunks when concatenating audio.
@@ -42,8 +49,19 @@ CHUNK_GAP_SECONDS = 0.25
 # ─── Database helpers ─────────────────────────────────────────────────────────
 
 
+def _connect() -> sqlite3.Connection:
+    """Open a history-DB connection.
+
+    ``busy_timeout`` makes concurrent writers wait for the lock instead of
+    raising "database is locked" (WAL allows a single writer at a time).
+    """
+    conn = sqlite3.connect(str(DB_PATH), timeout=5.0)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
+
+
 def init_db():
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS generations (
@@ -67,7 +85,7 @@ def init_db():
 
 
 def add_generation(filename: str, text: str, engine: str, voice: str, speed: float, pitch: float, duration: float, fmt: str = "wav"):
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     conn.execute(
         "INSERT INTO generations (filename, text, engine, voice, speed, pitch, duration, format, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (filename, text, engine, voice, speed, pitch, duration, fmt, time.strftime("%Y-%m-%d %H:%M:%S")),
@@ -77,7 +95,7 @@ def add_generation(filename: str, text: str, engine: str, voice: str, speed: flo
 
 
 def get_generations(limit: int = 100, offset: int = 0):
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     cursor = conn.execute("SELECT id, filename, text, engine, voice, speed, pitch, duration, format, created_at FROM generations ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset))
     columns = [desc[0] for desc in cursor.description]
     rows = cursor.fetchall()
@@ -86,20 +104,25 @@ def get_generations(limit: int = 100, offset: int = 0):
 
 
 def delete_generation(filename: str):
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = _connect()
     conn.execute("DELETE FROM generations WHERE filename = ?", (filename,))
     conn.commit()
     conn.close()
 
 
-def delete_generations_older_than(days: int):
-    conn = sqlite3.connect(str(DB_PATH))
+def delete_generations_older_than(days: int) -> list[str]:
+    """Delete history rows older than ``days``; returns their filenames so
+    the caller can also remove the audio files from disk."""
+    conn = _connect()
     date_threshold = time.strftime("%Y-%m-%d", time.localtime(time.time() - days * 86400))
-    cursor = conn.execute("DELETE FROM generations WHERE created_at < ?", (date_threshold,))
-    rows_deleted = cursor.rowcount
+    cursor = conn.execute(
+        "SELECT filename FROM generations WHERE created_at < ?", (date_threshold,)
+    )
+    filenames = [row[0] for row in cursor.fetchall()]
+    conn.execute("DELETE FROM generations WHERE created_at < ?", (date_threshold,))
     conn.commit()
     conn.close()
-    return rows_deleted
+    return filenames
 
 
 # ─── Audio DSP helpers ────────────────────────────────────────────────────────
@@ -234,14 +257,46 @@ class TTSEngine:
     # label, help text, group ("main" or "advanced"), and optionally options
     # for string selects.
     engine_params: dict[str, dict] = {}
+    #: If True, generate()/preview_voice() hold a per-instance lock for their
+    #: whole run. Required for engines that mutate shared load state in
+    #: synthesize() (e.g. Piper swaps voice models); harmless to leave off
+    #: for stateless/remote engines.
+    serialize_generation = False
 
     def __init__(self, output_dir: str = "output"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
+        self._engine_lock = threading.Lock()
         # Engine is "born" now: the idle timer starts at creation, so a
         # freshly adopted daemon isn't instantly unloaded by the monitor.
         self.last_used = time.time()
         self.active_requests = 0
+
+    def _serialization(self):
+        """Context manager serializing generation when the engine needs it."""
+        return self._engine_lock if self.serialize_generation else nullcontext()
+
+    def _param(self, params: dict | None, name: str) -> Any:
+        """Read an engine param, falling back to its ``engine_params`` default.
+
+        Keeps the call-site defaults and the API-exposed schema from drifting
+        apart: the schema is the single source of truth.
+        """
+        spec = self.engine_params.get(name, {})
+        value = (params or {}).get(name)
+        if value is None:
+            value = spec.get("default")
+        ptype = spec.get("type")
+        try:
+            if ptype == "int" and value is not None:
+                return int(value)
+            if ptype == "float" and value is not None:
+                return float(value)
+            if ptype == "bool":
+                return bool(value)
+        except (TypeError, ValueError):
+            return spec.get("default")
+        return value
 
     # ── resource tracking (used by the server's auto-unload monitor) ──
 
@@ -324,24 +379,26 @@ class TTSEngine:
         text = text.strip()
         if not text:
             raise ValueError("Text is empty")
-        if len(text) > self.max_text_chars:
-            chunks = chunk_text(text, self.max_text_chars)
-            audio, sr = self._synthesize_chunked(chunks, voice, **(params or {}))
-        else:
-            audio, sr = self.synthesize(text, voice, **(params or {}))
+        with self._serialization():
+            if len(text) > self.max_text_chars:
+                chunks = chunk_text(text, self.max_text_chars)
+                audio, sr = self._synthesize_chunked(chunks, voice, **(params or {}))
+            else:
+                audio, sr = self.synthesize(text, voice, **(params or {}))
 
-        if not self.native_speed and speed != 1.0:
-            audio = _time_stretch(audio, speed)
-        if not self.native_pitch and abs(pitch) > 0.01:
-            audio = self._apply_pitch_shift(audio, sr, pitch)
+            if not self.native_speed and speed != 1.0:
+                audio = _time_stretch(audio, speed)
+            if not self.native_pitch and abs(pitch) > 0.01:
+                audio = self._apply_pitch_shift(audio, sr, pitch)
 
-        filepath, duration = self._save_audio(audio, sr, "wav")
+            filepath, duration = self._save_audio(audio, sr, "wav")
         if fmt != "wav":
             filepath = self._convert_format(filepath, sr, fmt)
         return filepath, duration
 
     def preview_voice(self, voice_name: str, text: str = "Hello, this is a voice preview.", **params) -> tuple[np.ndarray, int]:
-        return self.synthesize(text, voice_name, **params)
+        with self._serialization():
+            return self.synthesize(text, voice_name, **params)
 
     def get_engine_id(self) -> str:
         return self.name
@@ -359,8 +416,14 @@ class TTSEngine:
     def _apply_pitch_shift(self, audio: np.ndarray, sr: int, n_steps: float) -> np.ndarray:
         if abs(n_steps) < 0.01:
             return audio
-        import librosa
-        return librosa.effects.pitch_shift(y=audio, sr=sr, n_steps=n_steps)
+        try:
+            import librosa
+            return librosa.effects.pitch_shift(y=audio, sr=sr, n_steps=n_steps)
+        except ImportError:
+            # librosa missing (core-only install): return audio unchanged
+            # rather than failing the whole generation.
+            logger.warning("librosa not installed — pitch shift skipped")
+            return audio
 
     def _convert_format(self, filepath: str, sr: int, fmt: str) -> str:
         if fmt == "wav":
@@ -396,6 +459,7 @@ class PiperEngine(TTSEngine):
     # Speed is handled by the base class (librosa) to remain consistent with
     # the global speed slider; advanced users may set ``length_scale`` via
     # params for native speed control instead.
+    serialize_generation = True  # synthesize() swaps shared voice models
     engine_params = {
         "speaker_id": {
             "type": "int",
@@ -549,10 +613,27 @@ def _find_espeak_lib() -> str | None:
     return None
 
 
+_ESPEAK_DATA_CANDIDATES = [
+    "/usr/share/espeak-ng-data",            # standard across distros
+    "/usr/lib/espeak-ng-data",              # some Debian splits
+    "/usr/local/share/espeak-ng-data",      # source installs
+    "/opt/homebrew/share/espeak-ng-data",   # macOS (Homebrew)
+]
+
+
+def _find_espeak_data() -> str | None:
+    """Locate the espeak-ng data directory across common install paths."""
+    for path in _ESPEAK_DATA_CANDIDATES:
+        if os.path.isdir(path):
+            return path
+    return None
+
+
 @register_engine("kokoro")
 class KokoroEngine(TTSEngine):
     # Kokoro accepts speed natively, so skip the base-class librosa stretch.
     native_speed = True
+    serialize_generation = True  # lazy model load in synthesize()
 
     engine_params = {
         "speed": {
@@ -633,7 +714,7 @@ class KokoroEngine(TTSEngine):
         from kokoro_onnx import Kokoro
         from kokoro_onnx.tokenizer import EspeakConfig
         espeak_config = EspeakConfig(
-            data_path="/usr/share/espeak-ng-data",
+            data_path=_find_espeak_data(),
             lib_path=_find_espeak_lib(),
         )
         self._kokoro = Kokoro(str(model_path), str(voices_path), espeak_config=espeak_config)
@@ -682,6 +763,7 @@ class KokoroEngine(TTSEngine):
 @register_engine("kitten-tts")
 class KittenTTSEngine(TTSEngine):
     native_speed = True
+    serialize_generation = True  # lazy model load in synthesize()
 
     engine_params = {
         "speed": {
@@ -921,15 +1003,15 @@ class Audio8Engine(TTSEngine):
     def synthesize(self, text: str, voice: str = "", **params) -> tuple[np.ndarray, int]:
         client = self._get_client()
         voice_name = voice or self._default_voice_name()
-        # Pass engine-specific params to the Audio8 daemon
+        # Defaults come from the engine_params schema (single source of truth)
         body: dict = {
             "text": text,
             "voice_name": voice_name,
-            "temperature": float(params.get("temperature", 0.3)),
-            "top_p": float(params.get("top_p", 0.9)),
-            "top_k": int(params.get("top_k", 50)),
-            "seed": int(params.get("seed", 42)),
-            "max_new_tokens": int(params.get("max_new_tokens", 1024)),
+            "temperature": self._param(params, "temperature"),
+            "top_p": self._param(params, "top_p"),
+            "top_k": self._param(params, "top_k"),
+            "seed": self._param(params, "seed"),
+            "max_new_tokens": self._param(params, "max_new_tokens"),
         }
         resp = client.post(f"{self._url}/api/tts", json=body, timeout=120)
         resp.raise_for_status()

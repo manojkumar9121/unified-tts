@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unified TTS — Soft Pastel</title>
+<style>
+/* ── Design: Soft Pastel / Warm ──────────────────────────────────────── */
+/* Cream backgrounds. Rounded everything. Soft shadows. Muted warm palette.
+   Feels friendly, approachable, and calm. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #fdf6ec;
+  --bg-dark: #1a1614;
+  --surface: #ffffff;
+  --surface-dark: #2a2320;
+  --border: #e8ddd3;
+  --border-dark: #3d3430;
+  --text: #3d3028;
+  --text-dark: #f0e6dc;
+  --text-muted: #9e8e82;
+  --text-muted-dark: #7a6e65;
+  --accent: #e07b5c;
+  --accent-soft: rgba(224, 123, 92, 0.12);
+  --green: #7fb78a;
+  --green-soft: rgba(127, 183, 138, 0.15);
+  --blue: #6a9fc0;
+  --blue-soft: rgba(106, 159, 192, 0.12);
+  --purple: #a07bb5;
+  --radius: 18px;
+  --font: 'Nunito', 'Quicksand', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+[data-theme="dark"] {
+  --bg: var(--bg-dark);
+  --surface: var(--surface-dark);
+  --border: var(--border-dark);
+  --text: var(--text-dark);
+  --text-muted: var(--text-muted-dark);
+  --accent-soft: rgba(224, 123, 92, 0.18);
+  --green-soft: rgba(127, 183, 138, 0.2);
+  --blue-soft: rgba(106, 159, 192, 0.18);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  transition: background 0.25s, color 0.25s;
+}
+
+.shell {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 36px 24px 120px;
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 36px;
+}
+.logo {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--accent);
+}
+.logo span { color: var(--text-muted); font-weight: 400; }
+
+.theme-toggle {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(61, 48, 40, 0.08);
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); transform: rotate(20deg); }
+
+/* ── Engine tabs — soft colored blobs ── */
+.engine-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.engine-pill {
+  padding: 10px 20px;
+  border: 2px solid var(--border);
+  border-radius: 50px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 6px rgba(61, 48, 40, 0.06);
+}
+.engine-pill:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(61, 48, 40, 0.1); }
+.engine-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ── Cards ── */
+.card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(61, 48, 40, 0.06);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.card:hover { border-color: var(--accent); box-shadow: 0 4px 16px rgba(224, 123, 92, 0.1); }
+
+.section-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.section-label::before {
+  content: '';
+  width: 16px;
+  height: 3px;
+  border-radius: 99px;
+  background: var(--accent);
+}
+
+/* ── Textarea ── */
+textarea {
+  width: 100%;
+  min-height: 130px;
+  padding: 16px 18px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.75;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+textarea:focus { outline: none; border-color: var(--accent); }
+textarea::placeholder { color: var(--text-muted); }
+.char-count {
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 8px;
+}
+
+/* ── Controls ── */
+.controls-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.control label {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.control select {
+  width: 100%;
+  padding: 11px 14px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.control select:focus { outline: none; border-color: var(--accent); }
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
+/* ── Buttons ── */
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.btn {
+  padding: 11px 22px;
+  border: 2px solid var(--border);
+  border-radius: 50px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover { background: #c96a4d; border-color: #c96a4d; color: #fff; }
+.btn-green { background: var(--green); border-color: var(--green); color: #fff; }
+.btn-green:hover { background: #6ba876; border-color: #6ba876; color: #fff; }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+/* ── Output ── */
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.output-header h2 {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.engine-tag {
+  font-size: 10px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--blue);
+  background: var(--blue-soft);
+  padding: 4px 12px;
+  border-radius: 50px;
+}
+
+.visualizer {
+  height: 80px;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  position: relative;
+}
+.visualizer canvas { width: 100%; height: 100%; display: block; }
+
+.audio-player {
+  display: none;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 16px;
+}
+.audio-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-bottom: 8px;
+}
+.audio-player audio { width: 100%; height: 36px; border-radius: 8px; }
+
+/* ── Recent ── */
+.recent { margin-top: 4px; }
+.recent h3 {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.recent-item:hover { border-color: var(--accent); transform: translateX(3px); }
+.recent-engine {
+  font-size: 9px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--green);
+  background: var(--green-soft);
+  padding: 3px 9px;
+  border-radius: 50px;
+}
+.recent-text {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-dur {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ── Footer ── */
+.status {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-top: 2px solid var(--border);
+  gap: 10px;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.demo-label {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 50px;
+  z-index: 10;
+}
+
+@media (max-width: 600px) {
+  .controls-grid { grid-template-columns: 1fr; }
+  .shell { padding: 24px 16px 120px; }
+  .actions { flex-direction: column; }
+  .btn { width: 100%; justify-content: center; }
+}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="demo-label">Design 4 / 4 — Soft Pastel</div>
+
+<div class="shell">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">Unified TTS <span>studio</span></div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+    </button>
+  </header>
+
+  <!-- Engine tabs -->
+  <div class="engine-row">
+    <button class="engine-pill active" onclick="selectEngine(this)">piper</button>
+    <button class="engine-pill" onclick="selectEngine(this)">kokoro</button>
+    <button class="engine-pill" onclick="selectEngine(this)">audio8</button>
+    <button class="engine-pill" onclick="selectEngine(this)">edge-tts</button>
+    <button class="engine-pill" onclick="selectEngine(this)">gtts</button>
+  </div>
+
+  <!-- Text input -->
+  <div class="card">
+    <div class="section-label">Text</div>
+    <textarea placeholder="What would you like me to say?" maxlength="5000" oninput="updateCount(this)"></textarea>
+    <div class="char-count"><span>0 / 5000</span></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="card">
+    <div class="section-label">Settings</div>
+    <div class="controls-grid">
+      <div class="control">
+        <label>Voice</label>
+        <select>
+          <option value="">— default —</option>
+          <option>en_US-lessa-medium</option>
+          <option>en_US-amy-medium</option>
+          <option>en_GB-daniel-medium</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Format</label>
+        <select>
+          <option>wav</option>
+          <option>mp3</option>
+          <option>flac</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Speed</label>
+        <input type="range" min="0.5" max="2.0" step="0.1" value="1.0" oninput="this.parentElement.querySelector('.range-labels span').textContent=this.value+'x'">
+        <div class="range-labels"><span>0.5x</span><span>1.0x</span><span>2.0x</span></div>
+      </div>
+      <div class="control">
+        <label>Pitch</label>
+        <input type="range" min="-12" max="12" step="1" value="0" oninput="this.parentElement.querySelector('.range-labels span').textContent=this.value">
+        <div class="range-labels"><span>-12</span><span>0</span><span>+12</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-primary">Generate</button>
+    <button class="btn btn-green">Models</button>
+    <button class="btn" disabled>Regenerate</button>
+    <button class="btn" disabled>Play</button>
+    <button class="btn" disabled>Save</button>
+    <button class="btn">Clear</button>
+  </div>
+
+  <!-- Output -->
+  <div class="card">
+    <div class="output-header">
+      <h2>Output</h2>
+      <span class="engine-tag">piper</span>
+    </div>
+    <div class="visualizer">
+      <canvas id="viz"></canvas>
+    </div>
+    <div class="audio-player" id="audioPlayer">
+      <div class="audio-meta">piper · default · 3.42s</div>
+      <audio controls preload="auto"></audio>
+    </div>
+  </div>
+
+  <!-- Recent -->
+  <div class="recent">
+    <h3>Recent</h3>
+    <div class="recent-item">
+      <span class="recent-engine">piper</span>
+      <span class="recent-text">Hello, this is a sample from the soft pastel UI design demo.</span>
+      <span class="recent-dur">3.42s</span>
+    </div>
+    <div class="recent-item">
+      <span class="recent-engine">edge</span>
+      <span class="recent-text">Quick brown fox jumps over the lazy dog.</span>
+      <span class="recent-dur">1.87s</span>
+    </div>
+    <div class="recent-item">
+      <span class="recent-engine">kokoro</span>
+      <span class="recent-text">The sound of silence has a very profound impact.</span>
+      <span class="recent-dur">4.10s</span>
+    </div>
+  </div>
+
+</div>
+
+<div class="status">
+  <div class="status-dot"></div>
+  <span>Ready</span>
+  <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;">Ctrl+↵ generate</span>
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+}
+function selectEngine(btn) {
+  document.querySelectorAll('.engine-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function updateCount(el) {
+  el.parentElement.querySelector('.char-count span').textContent = el.value.length + ' / 5000';
+}
+
+// Soft visualizer
+const canvas = document.getElementById('viz');
+const ctx = canvas.getContext('2d');
+function resize() { canvas.width = canvas.offsetWidth * 2; canvas.height = canvas.offsetHeight * 2; }
+resize();
+window.addEventListener('resize', resize);
+
+let t = 0;
+function draw() {
+  const w = canvas.width, h = canvas.height;
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+  const colors = ['#e07b5c', '#7fb78a', '#6a9fc0', '#a07bb5'];
+  const bars = 28;
+  const bw = w / bars;
+  for (let c = 0; c < colors.length; c++) {
+    ctx.fillStyle = colors[c];
+    ctx.globalAlpha = 0.35 + c * 0.08;
+    const offset = c * 3;
+    for (let i = 0; i < bars; i++) {
+      const amp = 0.12 + 0.4 * Math.abs(Math.sin(i * 0.4 + t + offset) * Math.cos(i * 0.25 + t * 0.6));
+      const bh = amp * h * 0.7;
+      ctx.beginPath();
+      ctx.roundRect(i * bw + 2, h / 2 - bh / 2, bw - 4, bh, 4);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  t += 0.04;
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

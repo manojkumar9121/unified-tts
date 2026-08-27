@@ -7,14 +7,19 @@ A Python FastAPI web UI for multi-engine text-to-speech. Synthesis runs server-s
 ## Running
 
 ```bash
-bash run.sh              # launches FastAPI on 0.0.0.0:8000
+bash run.sh              # launches FastAPI on 127.0.0.1:8000 (TTS_HOST/TTS_PORT override)
 python3 check_deps.py    # pre-flight dependency check
+pytest                   # test suite (core deps only; no models needed)
 ```
 
 `run.sh` activates `.venv` if present, else reuses an already-active
 `$VIRTUAL_ENV`, else falls back to the system python3. It sets `PYTHONPATH`
 to the repo root, suppresses UserWarning noise, and runs a dependency
 check before starting the server.
+
+The server binds loopback by default (security); set `TTS_HOST=0.0.0.0` to
+expose it, and optionally `TTS_API_KEY` to require an `X-API-Key` header on
+`/api/*` calls.
 
 Audio8 daemon (separate FastAPI service) runs on port **8024** as a subprocess — never start it directly.
 
@@ -128,7 +133,18 @@ mypy --ignore-missing-imports .
 ```
 
 `mypy.ini` sets `ignore_missing_imports = True` and `warn_unused_ignores = False`.
-No formal test suite exists.
+
+## Testing & linting
+
+```bash
+pip install -e ".[dev]"   # pytest, httpx, ruff, mypy
+pytest                    # tests/ — pure logic + API (TestClient); no models needed
+ruff check .              # config in pyproject.toml ([tool.ruff])
+```
+
+Tests redirect the SQLite DB and output dir via `TTS_DATA_DIR`/`TTS_OUTPUT_DIR`
+(set in `tests/conftest.py`), so they never touch real user data. CI
+(`.github/workflows/ci.yml`) runs ruff + mypy + pytest.
 
 ## Constraints to remember
 

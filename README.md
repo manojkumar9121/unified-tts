@@ -127,6 +127,11 @@ Browser (static/) ──▶ FastAPI (server.py)
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `TTS_HOST` | `127.0.0.1` | Bind address — loopback by default; set `0.0.0.0` to expose |
+| `TTS_PORT` | `8000` | Web UI / API port |
+| `TTS_API_KEY` | *(unset)* | When set, `/api/*` requires the `X-API-Key` header (the UI page and audio files stay open) |
+| `TTS_OUTPUT_DIR` | `output/` | Where generated audio is written |
+| `TTS_DATA_DIR` | `data/` | SQLite history location |
 | `TTS_UNLOAD_IDLE_SECONDS` | `300` | Idle time before local models unload |
 | `AUDIO8_PORT` | `8024` | Port for the Audio8 daemon |
 | `ARKTTS_MODEL_DIR` | `audio8_models/` | Audio8 weights location |
@@ -134,6 +139,26 @@ Browser (static/) ──▶ FastAPI (server.py)
 | `ARKTTS_PRECISION` | `int4` | Audio8 quantization |
 | `ARKTTS_CODEC_PRECISION` | `fp16` | Audio8 codec quantization |
 | `ARKTTS_THREADS` | `5` | Audio8 inference threads |
+
+## Docker
+
+```bash
+docker build -t unified-tts .
+docker run -p 8000:8000 -v tts-data:/app/data -v tts-models:/app/models unified-tts
+```
+
+The image includes ffmpeg and espeak-ng; download models via the UI on first run.
+
+## Development
+
+```bash
+pip install -e ".[dev]"   # pytest + httpx + ruff + mypy
+pytest                    # test suite (no models needed)
+ruff check .              # lint
+mypy --ignore-missing-imports server.py tts_engine.py audio8_manager.py model_downloader.py check_deps.py
+```
+
+CI runs lint + tests on every push (`.github/workflows/ci.yml`).
 
 ## API
 
