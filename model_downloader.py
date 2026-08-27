@@ -38,6 +38,10 @@ _PIPER_VOICE_PATH = {
     "en_US-ryan-high": ("en/en_US/ryan/high", 121),
     "en_US-ljspeech-medium": ("en/en_US/ljspeech/medium", 63),
     "en_GB-alba-medium": ("en/en_GB/alba/medium", 71),
+    # Telugu (te_IN) — local ONNX voices from rhasspy/piper-voices
+    "te_IN-venkatesh-medium": ("te/te_IN/venkatesh/medium", 63),
+    "te_IN-maya-medium": ("te/te_IN/maya/medium", 63),
+    "te_IN-padmavathi-medium": ("te/te_IN/padmavathi/medium", 63),
 }
 PIPER_VOICES = sorted(_PIPER_VOICE_PATH.keys())
 
