@@ -3,7 +3,7 @@
 import json
 import time
 
-from audio8_manager import _HttpResponse, HEALTH_TTL_SECONDS, Audio8ServiceManager
+from audio8_manager import HEALTH_TTL_SECONDS, Audio8ServiceManager, _HttpResponse
 
 
 class FakeRaw:

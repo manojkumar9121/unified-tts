@@ -323,7 +323,6 @@ class TTSEngine:
 
     def unload(self) -> None:
         """Release model memory (RAM) held by this engine."""
-        pass
 
     def memory_mb(self) -> float | None:
         """Live estimate of memory held by the model, in MB (or None)."""
@@ -946,9 +945,8 @@ class Audio8Engine(TTSEngine):
     def _get_client(self):
         if not self._manager:
             raise RuntimeError("Audio8Engine requires an Audio8ServiceManager")
-        if not self._manager.is_running():
-            if not self._manager.start():
-                raise RuntimeError("Audio8 service failed to start")
+        if not self._manager.is_running() and not self._manager.start():
+            raise RuntimeError("Audio8 service failed to start")
         return self._manager
 
     @property
@@ -988,9 +986,8 @@ class Audio8Engine(TTSEngine):
     def list_voices(self) -> list[str]:
         if not self._manager:
             return []
-        if not self._manager.is_running():
-            if not self._manager.start():
-                return []
+        if not self._manager.is_running() and not self._manager.start():
+            return []
         client = self._manager
         try:
             resp = client.get(f"{self._url}/api/voices", timeout=5)
@@ -1035,6 +1032,7 @@ class EdgeTTSClient(TTSEngine):
     def list_voices(self) -> list[str]:
         if self._voices is None:
             import asyncio
+
             import edge_tts
 
             async def _fetch():
@@ -1047,6 +1045,7 @@ class EdgeTTSClient(TTSEngine):
     def synthesize(self, text: str, voice: str = "", **params) -> tuple[np.ndarray, int]:
         import asyncio
         import io
+
         import edge_tts
 
         async def _run():
@@ -1082,6 +1081,7 @@ class GTTSClient(TTSEngine):
 
     def synthesize(self, text: str, voice: str = "", **params) -> tuple[np.ndarray, int]:
         import io
+
         from gtts import gTTS
         tts = gTTS(text=text.strip(), lang="en")
         buffer = io.BytesIO()

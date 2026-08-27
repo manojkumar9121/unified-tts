@@ -5,8 +5,9 @@
 """
 
 import re
-import tomllib
 from pathlib import Path
+
+import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 

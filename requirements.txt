@@ -19,6 +19,9 @@ pydub>=0.25            # MP3/FLAC conversion (optional at runtime)
 # System / process management
 psutil>=5.9
 
+# Required by FastAPI UploadFile / Form (voice registration endpoint)
+python-multipart>=0.0.9
+
 # TTS engines
 piper-tts>=1.2.0       # Piper local ONNX engine
 kokoro-onnx>=0.4.0     # Kokoro local ONNX engine (pulls phonemizer + espeak-ng)

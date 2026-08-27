@@ -12,8 +12,8 @@ _TMP = tempfile.mkdtemp(prefix="unified-tts-test-")
 os.environ.setdefault("TTS_DATA_DIR", os.path.join(_TMP, "data"))
 os.environ.setdefault("TTS_OUTPUT_DIR", os.path.join(_TMP, "output"))
 
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+import pytest
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture(scope="session")

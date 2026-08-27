@@ -2,8 +2,8 @@
 
 import pytest
 
-from tts_engine import _ENGINE_REGISTRY
 from server import _coerce_param, _validate_params
+from tts_engine import _ENGINE_REGISTRY
 
 
 class TestCoerceParam:

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from tts_engine import chunk_text, split_sentences, _hard_split, _time_stretch
+from tts_engine import _hard_split, _time_stretch, chunk_text, split_sentences
 
 
 class TestSplitSentences:

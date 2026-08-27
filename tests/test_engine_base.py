@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from tts_engine import (
-    TTSEngine,
     _ENGINE_REGISTRY,
+    TTSEngine,
     create_engine,
     engine_ids,
 )
@@ -93,7 +93,7 @@ class TestBasePipeline:
     def test_generate_chunking_over_max_chars(self, tmp_path):
         eng = self.FakeEngine(str(tmp_path))
         eng.max_text_chars = 10
-        filepath, duration = eng.generate("one two three four five six.")  # >10 chars → chunks
+        _filepath, duration = eng.generate("one two three four five six.")  # >10 chars → chunks
         assert duration >= 0.3  # several chunks + gaps
 
     def test_serialization_lock_is_honored(self, tmp_path):

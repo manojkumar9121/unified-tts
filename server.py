@@ -11,23 +11,31 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, ClassVar, Iterator, Literal
+from typing import Any, ClassVar, Literal
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from tts_engine import (
-    TTSEngine,
-    create_engine, init_db, add_generation, get_generations,
-    delete_generation, delete_generations_older_than, get_all_engines,
-    engine_ids, set_audio8_manager, _ENGINE_REGISTRY,
-)
-from audio8_manager import Audio8ServiceManager
 import model_downloader as md
+from audio8_manager import Audio8ServiceManager
+from tts_engine import (
+    _ENGINE_REGISTRY,
+    TTSEngine,
+    add_generation,
+    create_engine,
+    delete_generation,
+    delete_generations_older_than,
+    engine_ids,
+    get_all_engines,
+    get_generations,
+    init_db,
+    set_audio8_manager,
+)
 
 logger = logging.getLogger("unified_tts.server")
 
@@ -71,9 +79,8 @@ async def api_key_guard(request: Request, call_next):
     The UI page, static assets and /output audio stay open so browser
     <audio> playback keeps working; only the JSON API is protected.
     """
-    if API_KEY and request.url.path.startswith("/api/"):
-        if request.headers.get("x-api-key") != API_KEY:
-            return JSONResponse({"detail": "Invalid or missing X-API-Key"}, status_code=401)
+    if API_KEY and request.url.path.startswith("/api/") and request.headers.get("x-api-key") != API_KEY:
+        return JSONResponse({"detail": "Invalid or missing X-API-Key"}, status_code=401)
     return await call_next(request)
 
 
@@ -354,7 +361,7 @@ def run_generation(
 @app.post("/api/generate")
 def generate(req: GenerateRequest):
     try:
-        filepath, duration, filename, voice, _, _, _ = run_generation(
+        _filepath, duration, filename, _voice, _, _, _ = run_generation(
             req.engine_id, req.text, req.voice, req.speed, req.pitch, req.fmt, req.params
         )
         return {"filename": filename, "duration": round(duration, 2), "url": f"/output/{filename}"}
@@ -367,13 +374,12 @@ def generate(req: GenerateRequest):
 @app.post("/api/regenerate")
 def regenerate(req: RegenerateRequest):
     """Re-run the last single generation, optionally with new voice/params."""
-    global last_generation
     with _last_generation_lock:
         base = dict(last_generation) if last_generation else None
     if base is None:
         raise HTTPException(400, "Nothing to regenerate yet — generate something first")
     try:
-        filepath, duration, filename = run_generation(
+        _filepath, duration, filename = run_generation(
             engine_id=base["engine_id"],
             text=base["text"],
             voice=req.voice if req.voice is not None else base["voice"],
@@ -391,8 +397,8 @@ def regenerate(req: RegenerateRequest):
 
 @app.post("/api/generate-batch")
 def generate_batch(req: BatchGenerateRequest):
-    import zipfile
     import io
+    import zipfile
 
     zip_buffer = io.BytesIO()
     texts_to_process = req.safe_texts
@@ -672,9 +678,8 @@ def register_custom_voice(
     import urllib.request
     import uuid
 
-    if not audio8_manager.is_running():
-        if not audio8_manager.start():
-            raise HTTPException(503, "Audio8 service unavailable")
+    if not audio8_manager.is_running() and not audio8_manager.start():
+        raise HTTPException(503, "Audio8 service unavailable")
 
     audio_bytes = audio.file.read()
     if not audio_bytes:

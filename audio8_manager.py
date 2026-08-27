@@ -8,9 +8,8 @@ import os
 import signal
 import subprocess
 import time
-from pathlib import Path
-
 import urllib.request
+from pathlib import Path
 
 logger = logging.getLogger("unified_tts.audio8")
 
