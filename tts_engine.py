@@ -764,6 +764,18 @@ class KittenTTSEngine(TTSEngine):
     native_speed = True
     serialize_generation = True  # lazy model load in synthesize()
 
+    # Mapping from user-friendly names to kittentts internal voice IDs.
+    _VOICE_MAP: dict[str, str] = {
+        "Bella": "expr-voice-2-m",
+        "Jasper": "expr-voice-2-f",
+        "Luna": "expr-voice-3-m",
+        "Bruno": "expr-voice-3-f",
+        "Rosie": "expr-voice-4-m",
+        "Hugo": "expr-voice-4-f",
+        "Kiki": "expr-voice-5-m",
+        "Leo": "expr-voice-5-f",
+    }
+
     engine_params = {
         "speed": {
             "type": "float",
@@ -775,13 +787,6 @@ class KittenTTSEngine(TTSEngine):
             "help": "Speech speed multiplier.",
             "group": "main",
         },
-        "clean_text": {
-            "type": "bool",
-            "default": True,
-            "label": "Clean text",
-            "help": "Preprocess text (expand numbers, currencies, etc.).",
-            "group": "advanced",
-        },
     }
 
     def __init__(self, output_dir: str = "output"):
@@ -789,10 +794,7 @@ class KittenTTSEngine(TTSEngine):
         self.name = "kitten-tts"
         self.is_downloadable = True
         self._model: Any = None
-        self._voices: list[str] = [
-            "Bella", "Jasper", "Luna", "Bruno",
-            "Rosie", "Hugo", "Kiki", "Leo",
-        ]
+        self._voices: list[str] = list(self._VOICE_MAP.keys())
 
     def _model_dir(self) -> Path:
         return MODELS_DIR / "kitten-tts"
@@ -817,8 +819,26 @@ class KittenTTSEngine(TTSEngine):
             raise FileNotFoundError(
                 "Kitten TTS model not found. Download it via Models → Download."
             )
-        import kittentts
-        self._model = kittentts.KittenTTS(str(onnx), cache_dir=str(self._model_dir()))
+        import kittentts as _kittentts  # used for source extraction
+        import onnxruntime as ort
+        import phonemizer
+
+        self._session = ort.InferenceSession(str(onnx))
+        self._voice_embeddings = dict(np.load(str(npz)))  # type: ignore[call-overload]
+        self._phonemizer = phonemizer.backend.EspeakBackend(
+            language="en-us", preserve_punctuation=True, with_stress=True
+        )
+        # Build the phoneme alphabet from the installed kittentts package.
+        import inspect as _inspect
+        import re as _re
+        _kt_src = _inspect.getsource(_kittentts.KittenTTS.__init__)
+        _match = _re.search(r"list\('(.*?)'\)\)", _kt_src, _re.DOTALL)
+        if _match:
+            _phoneme_alphabet = list(_match.group(1))
+        else:
+            raise RuntimeError("Could not parse kittentts phoneme alphabet")
+        self._word_index = {symbol: i for i, symbol in enumerate(_phoneme_alphabet)}
+        self._model = True  # marks as loaded
 
     @property
     def loaded(self) -> bool:
@@ -828,6 +848,9 @@ class KittenTTSEngine(TTSEngine):
         return self._model is not None
 
     def unload(self) -> None:
+        self._session = None
+        self._voice_embeddings = {}
+        self._phonemizer = None
         self._model = None
         gc.collect()
 
@@ -839,16 +862,34 @@ class KittenTTSEngine(TTSEngine):
         return round(self._file_mb(onnx, npz) * 1.2, 1)
 
     def synthesize(self, text: str, voice: str = "", **params) -> tuple[np.ndarray, int]:
+        import re
+
         self._ensure_loaded()
         if not voice:
             voice = "Jasper"
-        audio = self._model.generate(
-            text,
-            voice=voice,
-            speed=float(params.get("speed", 1.0)),
-            clean_text=bool(params.get("clean_text", True)),
-        )
-        return audio, 24000
+        internal_voice = self._VOICE_MAP.get(voice, voice)
+
+        # Build phoneme token IDs (same logic as original kittentts.generate).
+        phonemes = self._phonemizer.phonemize([text])[0]
+        tokens = [
+            self._word_index[c]
+            for c in " ".join(re.findall(r"\w+|[^\w\s]", phonemes))
+            if c in self._word_index
+        ]
+        input_ids = np.array([[0] + tokens + [0]], dtype=np.int64)
+
+        # Average the voice embedding across its 400 frames to get a (256,) vector.
+        style = self._voice_embeddings[internal_voice].mean(axis=0).astype(np.float32)
+        style = style.reshape(1, 256)
+
+        speed = np.array([float(params.get("speed", 1.0))], dtype=np.float32)
+
+        output = self._session.run(None, {
+            "input_ids": input_ids,
+            "style": style,
+            "speed": speed,
+        })
+        return output[0], 24000
 
 
 # ─── Audio8 (daemon-backed) ───────────────────────────────────────────────────
