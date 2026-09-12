@@ -267,6 +267,7 @@ class TTSEngine:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         self._engine_lock = threading.Lock()
+        self._busy_lock = threading.Lock()
         # Engine is "born" now: the idle timer starts at creation, so a
         # freshly adopted daemon isn't instantly unloaded by the monitor.
         self.last_used = time.time()
@@ -304,11 +305,13 @@ class TTSEngine:
         self.last_used = time.time()
 
     def acquire(self) -> None:
-        self.active_requests += 1
+        with self._busy_lock:
+            self.active_requests += 1
         self.touch()
 
     def release(self) -> None:
-        self.active_requests = max(0, self.active_requests - 1)
+        with self._busy_lock:
+            self.active_requests = max(0, self.active_requests - 1)
 
     @property
     def busy(self) -> bool:

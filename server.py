@@ -11,15 +11,16 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 import model_downloader as md
 from audio8_manager import Audio8ServiceManager
@@ -69,24 +70,6 @@ set_audio8_manager(audio8_manager)
 # memory (RAM) / stopping the Audio8 daemon.
 IDLE_UNLOAD_SECONDS = int(os.environ.get("TTS_UNLOAD_IDLE_SECONDS", "300"))
 
-app = FastAPI(title="Unified TTS")
-
-
-@app.middleware("http")
-async def api_key_guard(request: Request, call_next):
-    """Require ``X-API-Key`` on /api/* when TTS_API_KEY is configured.
-
-    The UI page, static assets and /output audio stay open so browser
-    <audio> playback keeps working; only the JSON API is protected.
-    """
-    if API_KEY and request.url.path.startswith("/api/") and request.headers.get("x-api-key") != API_KEY:
-        return JSONResponse({"detail": "Invalid or missing X-API-Key"}, status_code=401)
-    return await call_next(request)
-
-
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
-
 
 # ─── Engine lifecycle (singleton instances + idle auto-unload) ───────────────
 
@@ -115,9 +98,9 @@ def engine_use(eng: TTSEngine) -> Iterator[TTSEngine]:
         eng.release()
 
 
-def _monitor_loop() -> None:
+def _monitor_loop(stop_event: threading.Event) -> None:
     """Background thread: unload engines that have been idle too long."""
-    while True:
+    while not stop_event.is_set():
         time.sleep(15)
         now = time.time()
         for eng in list(_engine_cache.values()):
@@ -134,7 +117,78 @@ def _monitor_loop() -> None:
                 logger.exception("auto-unload failed for %s", eng.get_engine_id())
 
 
-threading.Thread(target=_monitor_loop, name="engine-auto-unload", daemon=True).start()
+_monitor_stop = threading.Event()
+_monitor_thread: threading.Thread | None = None
+
+
+def _shutdown() -> None:
+    """Gracefully unload all engines and stop the Audio8 daemon."""
+    logger.info("shutting down — unloading engines …")
+    for eng in list(_engine_cache.values()):
+        try:
+            eng.unload()
+        except Exception:
+            logger.exception("unload failed during shutdown for %s", eng.get_engine_id())
+    try:
+        audio8_manager.stop()
+    except Exception:
+        logger.exception("error stopping Audio8 daemon during shutdown")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    global _monitor_thread
+    # Start the auto-unload monitor thread on startup
+    _monitor_stop.clear()
+    _monitor_thread = threading.Thread(
+        target=_monitor_loop, args=(_monitor_stop,), name="engine-auto-unload", daemon=True
+    )
+    _monitor_thread.start()
+    try:
+        yield
+    finally:
+        # Stop the monitor thread
+        _monitor_stop.set()
+        if _monitor_thread is not None:
+            _monitor_thread.join(timeout=5)
+        # Graceful cleanup
+        _shutdown()
+
+
+app = FastAPI(title="Unified TTS", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def api_key_guard(request: Request, call_next):
+    """Require ``X-API-Key`` on /api/* when TTS_API_KEY is configured.
+
+    The UI page, static assets and /output audio stay open so browser
+    <audio> playback keeps working; only the JSON API is protected.
+    """
+    if API_KEY and request.url.path.startswith("/api/") and request.headers.get("x-api-key") != API_KEY:
+        return JSONResponse({"detail": "Invalid or missing X-API-Key"}, status_code=401)
+    return await call_next(request)
+
+
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
+
+
+# ─── Health endpoint ────────────────────────────────────────────────────────
+
+
+@app.get("/health")
+def health():
+    """Lightweight liveness probe for container orchestrators."""
+    import psutil
+
+    vm = psutil.virtual_memory()
+    return {
+        "status": "ok",
+        "cpu_count": psutil.cpu_count(logical=True),
+        "ram_total_mb": vm.total // (1024 * 1024),
+        "ram_available_mb": vm.available // (1024 * 1024),
+    }
 
 
 # ─── Request models ───────────────────────────────────────────────────────────
@@ -399,6 +453,7 @@ def regenerate(req: RegenerateRequest):
 def generate_batch(req: BatchGenerateRequest):
     import io
     import zipfile
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     zip_buffer = io.BytesIO()
     texts_to_process = req.safe_texts
@@ -419,23 +474,52 @@ def generate_batch(req: BatchGenerateRequest):
         except Exception:
             default_voice = req.voice or ""
 
+    # Online engines are stateless — run items concurrently for much better
+    # throughput when the bottleneck is the remote API.
+    concurrent = getattr(eng, "is_online", False)
+    engine_id = req.engine_id
+
+    results: list[tuple[int, tuple[str, float] | BaseException]] = []
+    max_workers = 5 if concurrent else 1
+
+    def _generate_one(idx: int) -> tuple[int, tuple[str, float] | BaseException]:
+        try:
+            with engine_use(eng):
+                filepath, duration = eng.generate(
+                    texts_to_process[idx],
+                    voice=default_voice,
+                    speed=req.speed,
+                    pitch=req.pitch,
+                    fmt=req.fmt,
+                    params=validated,
+                )
+            return idx, (filepath, duration)
+        except Exception as exc:
+            return idx, exc
+
+    if concurrent:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_generate_one, i) for i in range(len(texts_to_process))]
+            for future in as_completed(futures):
+                results.append(future.result())
+        # Re-sort to preserve input order for the zip manifest
+        results.sort(key=lambda x: x[0])
+    else:
+        for i in range(len(texts_to_process)):
+            results.append(_generate_one(i))
+
     failures: list[dict] = []
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for i, text in enumerate(texts_to_process):
-            try:
-                with engine_use(eng):
-                    filepath, duration = eng.generate(
-                        text, voice=default_voice, speed=req.speed, pitch=req.pitch, fmt=req.fmt, params=validated
-                    )
-                filename = Path(filepath).name
-                with open(filepath, "rb") as f:
-                    zf.writestr(f"text_{i+1}_{filename}", f.read())
-                add_generation(filename, text, req.engine_id, default_voice, req.speed, req.pitch, duration, req.fmt)
-            except Exception as exc:
-                # Don't kill the whole batch for one bad item; report it in
-                # the manifest and the X-Batch-Failed header instead.
-                logger.warning("batch item %d failed: %s", i + 1, exc)
-                failures.append({"index": i + 1, "error": str(exc) or exc.__class__.__name__})
+        for idx, result in results:
+            if isinstance(result, BaseException):
+                logger.warning("batch item %d failed: %s", idx + 1, result)
+                failures.append({"index": idx + 1, "error": str(result) or result.__class__.__name__})
+                continue
+            filepath, duration = result
+            filename = Path(filepath).name
+            with open(filepath, "rb") as f:
+                zf.writestr(f"text_{idx+1}_{filename}", f.read())
+            add_generation(filename, texts_to_process[idx], engine_id, default_voice, req.speed, req.pitch, duration, req.fmt)
 
         dropped = req.dropped_count
         if failures or dropped:
@@ -450,8 +534,8 @@ def generate_batch(req: BatchGenerateRequest):
     zip_buffer.seek(0)
     batch_name = f"batch_{uuid.uuid4().hex[:12]}.zip"
     batch_path = OUTPUT_DIR / batch_name
-    with open(batch_path, "wb") as f:
-        f.write(zip_buffer.getvalue())
+    with open(batch_path, "wb") as fh:
+        fh.write(zip_buffer.getvalue())
     return FileResponse(
         path=str(batch_path),
         media_type="application/zip",
@@ -461,6 +545,150 @@ def generate_batch(req: BatchGenerateRequest):
             "X-Batch-Dropped": str(dropped),
         },
     )
+
+
+# ─── Batch progress tracking ──────────────────────────────────────────────────
+
+_batch_progress: dict[str, dict] = {}
+
+
+@app.get("/api/batch-progress/{batch_id}")
+def batch_progress_route(batch_id: str):
+    """Current progress for an in-flight batch generation. Returns 404 if the batch is done or not found."""
+    state = _batch_progress.get(batch_id)
+    if state is None:
+        raise HTTPException(404, "batch not found")
+    return state
+
+
+@app.post("/api/generate-batch-stream")
+async def generate_batch_stream(req: BatchGenerateRequest):
+    """Batch generation returning a ZIP archive via StreamingResponse.
+
+    Progress is tracked separately at ``/api/batch-progress/{batch_id}``.
+    The ZIP contains generated audio files and an optional ``_manifest.json``
+    listing any failures or items dropped due to the MAX_TEXTS limit.
+    """
+    import io
+    import zipfile
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    texts_to_process = req.safe_texts
+    if not texts_to_process:
+        raise HTTPException(400, "No non-empty texts provided")
+
+    validated = _validate_params(req.engine_id, req.params)
+
+    eng = get_engine(req.engine_id)
+    default_voice = ""
+    with engine_use(eng):
+        try:
+            voices = eng.list_voices()
+            if req.voice:
+                default_voice = req.voice
+            elif voices:
+                default_voice = voices[0]
+        except Exception:
+            default_voice = req.voice or ""
+
+    concurrent = getattr(eng, "is_online", False)
+    batch_id = str(uuid.uuid4())
+    total = len(texts_to_process)
+
+    # Seed progress tracking
+    _batch_progress[batch_id] = {"done": 0, "total": total, "failed": [], "running": True}
+
+    results: list[tuple[int, tuple[str, float] | BaseException]] = []
+    max_workers = 5 if concurrent else 1
+
+    def _generate_one(idx: int) -> tuple[int, tuple[str, float] | BaseException]:
+        try:
+            with engine_use(eng):
+                filepath, duration = eng.generate(
+                    texts_to_process[idx],
+                    voice=default_voice,
+                    speed=req.speed,
+                    pitch=req.pitch,
+                    fmt=req.fmt,
+                    params=validated,
+                )
+            return idx, (filepath, duration)
+        except Exception as exc:
+            return idx, exc
+
+    def _run_sync():
+        if concurrent:
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = [pool.submit(_generate_one, i) for i in range(total)]
+                for f in as_completed(futures):
+                    result = f.result()
+                    results.append(result)
+                    state = _batch_progress.get(batch_id)
+                    if state:
+                        if isinstance(result[1], BaseException):
+                            state["failed"].append({"index": result[0] + 1, "error": str(result[1]) or result[1].__class__.__name__})
+                        state["done"] += 1
+            results.sort(key=lambda x: x[0])
+        else:
+            for i in range(total):
+                result = _generate_one(i)
+                results.append(result)
+                state = _batch_progress.get(batch_id)
+                if state:
+                    if isinstance(result[1], BaseException):
+                        state["failed"].append({"index": result[0] + 1, "error": str(result[1]) or result[1].__class__.__name__})
+                    state["done"] += 1
+        state = _batch_progress.get(batch_id)
+        if state:
+            state["running"] = False
+
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _run_sync)
+
+    # Build zip and stream it
+    try:
+        zip_buffer = io.BytesIO()
+        failures = [r for r in results if isinstance(r[1], BaseException)]
+
+        def _write_zip(zf) -> None:
+            for idx, result in results:
+                if isinstance(result, BaseException):
+                    continue
+                filepath, duration = result
+                filename = Path(filepath).name
+                with open(filepath, "rb") as fh:
+                    zf.writestr(f"text_{idx+1}_{filename}", fh.read())
+                add_generation(filename, texts_to_process[idx], req.engine_id, default_voice, req.speed, req.pitch, duration, req.fmt)
+
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            _write_zip(zf)
+
+            dropped = req.dropped_count
+            if failures or dropped:
+                manifest = {
+                    "total_requested": len(req.texts),
+                    "processed": len(texts_to_process),
+                    "dropped_over_limit": dropped,
+                    "failed": [{"index": r[0] + 1, "error": str(r[1]) or r[1].__class__.__name__} for r in failures],
+                }
+                zf.writestr("_manifest.json", json.dumps(manifest, indent=2))
+
+        zip_buffer.seek(0)
+        zip_bytes = zip_buffer.getvalue()
+        batch_name = f"batch_{uuid.uuid4().hex[:12]}.zip"
+
+        return StreamingResponse(
+            iter([zip_bytes]),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{batch_name}"',
+                "X-Batch-Failed": str(len(failures)),
+                "X-Batch-Dropped": str(req.dropped_count),
+            },
+        )
+    finally:
+        _batch_progress.pop(batch_id, None)
 
 
 @app.get("/api/audio-preview")
@@ -481,7 +709,19 @@ def audio_preview(voice: str = "", engine_id: str = "piper", text: str = "Hello,
         filename = f"preview_{uuid.uuid4().hex[:12]}.wav"
         filepath = OUTPUT_DIR / filename
         sf.write(str(filepath), audio, sr)
-        return {"url": f"/output/{filename}", "filename": filename}
+
+        def _cleanup_preview() -> None:
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+
+        return JSONResponse(
+            {"url": f"/output/{filename}", "filename": filename},
+            background=BackgroundTask(_cleanup_preview),
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, str(e))
 
