@@ -12,7 +12,7 @@ class VoiceStore:
         self.num_codebooks = int(num_codebooks)
 
     def list(self) -> list[dict]:
-        voices = []
+        voices: list[dict] = []
         if not self.root.exists():
             return voices
         for meta_path in sorted(self.root.glob("*/meta.json")):

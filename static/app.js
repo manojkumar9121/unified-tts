@@ -39,10 +39,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ── API helpers ────────────────────────────────────────────────────────
+// When the server sets TTS_API_KEY, every /api/* call needs X-API-Key.
+// Persist an operator-provided key in localStorage (?api_key=... once or
+// prompt) so the shipped UI keeps working behind an exposed server.
+function apiKeyHeaders() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get('api_key');
+    if (fromUrl) localStorage.setItem('tts-api-key', fromUrl);
+    const key = fromUrl || localStorage.getItem('tts-api-key') || '';
+    return key ? { 'X-API-Key': key } : {};
+  } catch { return {}; }
+}
+
 async function apiFetch(path, opts = {}) {
+  const { headers: optHeaders, ...rest } = opts;
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
+    ...rest,
+    headers: { 'Content-Type': 'application/json', ...apiKeyHeaders(), ...(optHeaders || {}) },
   });
   if (!res.ok) {
     const text = await res.text();
@@ -712,10 +726,16 @@ async function doBatchGenerate() {
   if (!lines.length) { setStatus('warn', 'Please enter text lines'); return; }
   setLoading(true);
   setStatus('ok', `Generating ${lines.length} items…`);
+  const wrap = $('batchProgressWrap');
+  const fill = $('batchProgressFill');
+  const label = $('batchProgressLabel');
+  wrap.style.display = '';
+  fill.style.width = '0%';
+  label.textContent = `0 / ${lines.length}`;
   try {
-    const resp = await fetch('/api/generate-batch', {
+    const resp = await fetch('/api/generate-batch-stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...apiKeyHeaders() },
       body: JSON.stringify({
         texts: lines,
         engine_id: currentEngine,
@@ -727,8 +747,6 @@ async function doBatchGenerate() {
       }),
     });
     if (!resp.ok) throw new Error(await resp.text());
-    // The server reports partial failures via headers + a _manifest.json
-    // inside the zip, so a bad item no longer fails silently.
     const failed = parseInt(resp.headers.get('X-Batch-Failed') || '0', 10);
     const dropped = parseInt(resp.headers.get('X-Batch-Dropped') || '0', 10);
     const url = URL.createObjectURL(await resp.blob());
@@ -744,6 +762,7 @@ async function doBatchGenerate() {
   } catch (e) {
     setStatus('err', e.message);
   }
+  wrap.style.display = 'none';
   setLoading(false);
 }
 
@@ -894,7 +913,7 @@ async function submitRegister(e) {
   btn.classList.add('loading');
   setStatus('warn', 'Registering voice — this can take a minute…');
   try {
-    const res = await fetch('/api/voices/register', { method: 'POST', body: fd });
+    const res = await fetch('/api/voices/register', { method: 'POST', body: fd, headers: { ...apiKeyHeaders() } });
     if (!res.ok) throw new Error((await res.text()).slice(0, 300));
     closeRegister();
     setStatus('ok', `Voice "${name}" registered`);

@@ -62,79 +62,94 @@ def _connect() -> sqlite3.Connection:
 
 def init_db():
     conn = _connect()
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS generations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
-            text TEXT NOT NULL,
-            engine TEXT NOT NULL,
-            voice TEXT NOT NULL,
-            speed REAL NOT NULL DEFAULT 1.0,
-            pitch REAL NOT NULL DEFAULT 0.0,
-            duration REAL NOT NULL,
-            format TEXT NOT NULL DEFAULT 'wav',
-            created_at TEXT NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_created_at ON generations (created_at DESC)
-    """)
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS generations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                text TEXT NOT NULL,
+                engine TEXT NOT NULL,
+                voice TEXT NOT NULL,
+                speed REAL NOT NULL DEFAULT 1.0,
+                pitch REAL NOT NULL DEFAULT 0.0,
+                duration REAL NOT NULL,
+                format TEXT NOT NULL DEFAULT 'wav',
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_created_at ON generations (created_at DESC)
+        """)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def add_generation(filename: str, text: str, engine: str, voice: str, speed: float, pitch: float, duration: float, fmt: str = "wav"):
     conn = _connect()
-    conn.execute(
-        "INSERT INTO generations (filename, text, engine, voice, speed, pitch, duration, format, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (filename, text, engine, voice, speed, pitch, duration, fmt, time.strftime("%Y-%m-%d %H:%M:%S")),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "INSERT INTO generations (filename, text, engine, voice, speed, pitch, duration, format, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (filename, text, engine, voice, speed, pitch, duration, fmt, time.strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_generations(limit: int = 100, offset: int = 0):
     conn = _connect()
-    cursor = conn.execute("SELECT id, filename, text, engine, voice, speed, pitch, duration, format, created_at FROM generations ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset))
-    columns = [desc[0] for desc in cursor.description]
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(zip(columns, row)) for row in rows]
+    try:
+        cursor = conn.execute("SELECT id, filename, text, engine, voice, speed, pitch, duration, format, created_at FROM generations ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset))
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        return [dict(zip(columns, row)) for row in rows]
+    finally:
+        conn.close()
 
 
 def delete_generation(filename: str):
     conn = _connect()
-    conn.execute("DELETE FROM generations WHERE filename = ?", (filename,))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("DELETE FROM generations WHERE filename = ?", (filename,))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def delete_generations_older_than(days: int) -> list[str]:
     """Delete history rows older than ``days``; returns their filenames so
     the caller can also remove the audio files from disk."""
     conn = _connect()
-    date_threshold = time.strftime("%Y-%m-%d", time.localtime(time.time() - days * 86400))
-    cursor = conn.execute(
-        "SELECT filename FROM generations WHERE created_at < ?", (date_threshold,)
-    )
-    filenames = [row[0] for row in cursor.fetchall()]
-    conn.execute("DELETE FROM generations WHERE created_at < ?", (date_threshold,))
-    conn.commit()
-    conn.close()
-    return filenames
+    try:
+        date_threshold = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - days * 86400))
+        cursor = conn.execute(
+            "SELECT filename FROM generations WHERE created_at < ?", (date_threshold,)
+        )
+        filenames = [row[0] for row in cursor.fetchall()]
+        conn.execute("DELETE FROM generations WHERE created_at < ?", (date_threshold,))
+        conn.commit()
+        return filenames
+    finally:
+        conn.close()
 
 
 # ─── Audio DSP helpers ────────────────────────────────────────────────────────
 
 
 def _time_stretch(audio: np.ndarray, rate: float) -> np.ndarray:
+    if rate <= 0:
+        raise ValueError(f"rate must be positive, got {rate}")
     try:
         import librosa
         return librosa.effects.time_stretch(y=audio, rate=rate)
-    except ImportError:
+    except (ImportError, RuntimeError):
         n = len(audio)
-        indices = np.linspace(0, n - 1, int(n / rate))
+        n_samples = int(n / rate)
+        if n_samples == 0:
+            return np.array([], dtype=audio.dtype)
+        indices = np.linspace(0, n - 1, n_samples)
         indices = np.clip(indices, 0, n - 1).astype(int)
         return audio[indices]
 
@@ -152,7 +167,16 @@ def split_sentences(text: str) -> list[str]:
 
 def _hard_split(segment: str, max_chars: int) -> list[str]:
     """Split an over-long segment on word boundaries."""
-    words = segment.split()
+    if max_chars <= 0:
+        return [segment] if segment else []
+    words: list[str] = []
+    # Split overlong single words by characters so the max_chars invariant
+    # holds even for URLs/base64 blobs (prevents bypassing daemon limits).
+    for word in segment.split():
+        while len(word) > max_chars:
+            words.append(word[:max_chars])
+            word = word[max_chars:]
+        words.append(word)
     chunks: list[str] = []
     cur = ""
     for word in words:
@@ -311,6 +335,8 @@ class TTSEngine:
 
     def release(self) -> None:
         with self._busy_lock:
+            if self.active_requests <= 0:
+                logger.warning("release() called without matching acquire() on %s", self.get_engine_id())
             self.active_requests = max(0, self.active_requests - 1)
 
     @property
@@ -439,6 +465,8 @@ class TTSEngine:
         if fmt == "flac":
             audio, sr = sf.read(filepath)
             new_path = filepath.rsplit(".", 1)[0] + ".flac"
+            # Write to new file first; only remove the original after success
+            # to avoid leaving an orphan file if the write fails partway.
             sf.write(new_path, audio, sr)
             os.remove(filepath)
             return new_path
@@ -585,8 +613,8 @@ class PiperEngine(TTSEngine):
             speaker_id=params.get("speaker_id"),
             noise_scale=params.get("noise_scale"),
             noise_w_scale=params.get("noise_w_scale"),
-            volume=float(params.get("volume", 1.0)),
-            normalize_audio=bool(params.get("normalize_audio", True)),
+            volume=float(self._param(params, "volume")),
+            normalize_audio=bool(self._param(params, "normalize_audio")),
         )
         chunks = list(self._voice.synthesize(text, syn_config=syn_config))  # type: ignore[union-attr]
         audio = np.concatenate([c.audio_float_array for c in chunks])
@@ -636,6 +664,9 @@ class KokoroEngine(TTSEngine):
     # Kokoro accepts speed natively, so skip the base-class librosa stretch.
     native_speed = True
     serialize_generation = True  # lazy model load in synthesize()
+    # Discovery (/api/engines) must not fault ~900 MB into RAM just to list
+    # voices. Voices load on explicit select (list_voices) instead.
+    lazy_list_voices = True
 
     engine_params = {
         "speed": {
@@ -798,6 +829,10 @@ class KittenTTSEngine(TTSEngine):
         self.is_downloadable = True
         self._model: Any = None
         self._voices: list[str] = list(self._VOICE_MAP.keys())
+        self._session: Any = None
+        self._voice_embeddings: dict = {}
+        self._phonemizer: Any = None
+        self._word_index: dict[str, int] = {}
 
     def _model_dir(self) -> Path:
         return MODELS_DIR / "kitten-tts"
@@ -832,14 +867,36 @@ class KittenTTSEngine(TTSEngine):
             language="en-us", preserve_punctuation=True, with_stress=True
         )
         # Build the phoneme alphabet from the installed kittentts package.
+        # Primary: parse the literal in KittenTTS.__init__ (no model load).
+        # Fallback: instantiate with local paths (no download) and read the
+        # live _word_index_dictionary, so a package reformatting doesn't
+        # silently break all Kitten synthesis.
         import inspect as _inspect
         import re as _re
-        _kt_src = _inspect.getsource(_kittentts.KittenTTS.__init__)
-        _match = _re.search(r"list\('(.*?)'\)\)", _kt_src, _re.DOTALL)
-        if _match:
-            _phoneme_alphabet = list(_match.group(1))
-        else:
-            raise RuntimeError("Could not parse kittentts phoneme alphabet")
+        _phoneme_alphabet: list[str] | None = None
+        try:
+            _kt_src = _inspect.getsource(_kittentts.KittenTTS.__init__)
+            _patterns = [
+                r"list\('(.*?)'\)\)",
+                r"list\(\"(.*?)\"\)\)",
+                r"\[\s*'([^']+)'\s*\]",
+            ]
+            for _pat in _patterns:
+                _match = _re.search(_pat, _kt_src, _re.DOTALL)
+                if _match:
+                    # Unescape escaped quotes from the source literal.
+                    _raw = _match.group(1).replace("\\'", "'").replace('\\"', '"')
+                    _phoneme_alphabet = list(_raw)
+                    break
+        except (OSError, TypeError):
+            _phoneme_alphabet = None
+        if _phoneme_alphabet is None:
+            try:
+                _helper = _kittentts.KittenTTS(model_path=str(onnx), voices_path=str(npz))
+                _phoneme_alphabet = list(_helper._word_index_dictionary.keys())
+                del _helper
+            except Exception as exc:
+                raise RuntimeError(f"Could not determine kittentts phoneme alphabet: {exc}")
         self._word_index = {symbol: i for i, symbol in enumerate(_phoneme_alphabet)}
         self._model = True  # marks as loaded
 

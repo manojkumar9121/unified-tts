@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unified TTS — Aurora</title>
+<style>
+/* ───────────────────────────────────────────────────────────────────────
+   Design 7 / 7 — Aurora Glass
+   Frosted glass over an animated mesh-gradient aurora. Soft depth, fluid
+   motion, restrained accent. Modern, calm, premium.
+   ─────────────────────────────────────────────────────────────────────── */
+
+:root {
+  color-scheme: dark light;
+
+  --bg: #07060f;
+  --bg-2: #0d0b1a;
+  --surface: rgba(255, 255, 255, 0.045);
+  --surface-2: rgba(255, 255, 255, 0.07);
+  --stroke: rgba(255, 255, 255, 0.10);
+  --stroke-strong: rgba(255, 255, 255, 0.18);
+
+  --text: #f4f3fb;
+  --text-2: #b6b3cf;
+  --text-3: #76738f;
+
+  --a1: #7c5cff;   /* violet  */
+  --a2: #4cc9ff;   /* cyan    */
+  --a3: #ff6ec7;   /* magenta */
+  --accent: var(--a1);
+  --grad: linear-gradient(120deg, var(--a1), var(--a2) 55%, var(--a3));
+  --grad-soft: linear-gradient(120deg, rgba(124,92,255,.16), rgba(76,201,255,.16));
+
+  --ok: #4ade80;
+  --radius: 20px;
+  --radius-sm: 13px;
+  --font: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --viz-a: #8b6bff;
+  --viz-b: #4cc9ff;
+}
+
+[data-theme="light"] {
+  --bg: #eef0fb;
+  --bg-2: #e3e6f7;
+  --surface: rgba(255, 255, 255, 0.55);
+  --surface-2: rgba(255, 255, 255, 0.75);
+  --stroke: rgba(20, 16, 50, 0.10);
+  --stroke-strong: rgba(20, 16, 50, 0.18);
+  --text: #16132b;
+  --text-2: #4b4763;
+  --text-3: #8b88a3;
+  --grad-soft: linear-gradient(120deg, rgba(124,92,255,.16), rgba(76,201,255,.16));
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  transition: background .5s var(--ease), color .4s var(--ease);
+}
+
+/* ── Aurora mesh background ── */
+body::before, body::after {
+  content: '';
+  position: fixed;
+  inset: -30%;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(70px) saturate(140%);
+  opacity: .85;
+  background:
+    radial-gradient(38% 38% at 18% 22%, rgba(124,92,255,.55), transparent 60%),
+    radial-gradient(34% 34% at 82% 18%, rgba(76,201,255,.45), transparent 60%),
+    radial-gradient(40% 40% at 70% 82%, rgba(255,110,199,.40), transparent 60%),
+    radial-gradient(36% 36% at 25% 85%, rgba(124,92,255,.35), transparent 60%);
+  animation: drift 22s var(--ease) infinite alternate;
+}
+body::after { animation-duration: 30s; animation-direction: alternate-reverse; opacity: .5; }
+[data-theme="light"] body::before, [data-theme="light"] body::after { opacity: .7; }
+@keyframes drift {
+  0%   { transform: translate3d(-3%, -2%, 0) scale(1.05); }
+  50%  { transform: translate3d(4%, 3%, 0)  scale(1.12); }
+  100% { transform: translate3d(-2%, 4%, 0) scale(1.04); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before, body::after { animation: none; }
+}
+
+/* ── Shell ── */
+.shell {
+  position: relative;
+  z-index: 1;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 30px 22px 130px;
+}
+
+/* Shared glass surface */
+.glass {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  box-shadow: 0 18px 40px -22px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  margin-bottom: 26px;
+  position: relative;
+  overflow: hidden;
+}
+.header::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: var(--grad-soft);
+  opacity: .6; pointer-events: none;
+}
+.brand { display: flex; align-items: center; gap: 12px; position: relative; }
+.brand-mark {
+  width: 38px; height: 38px; border-radius: 12px;
+  background: var(--grad);
+  display: grid; place-items: center;
+  box-shadow: 0 8px 22px -6px rgba(124,92,255,.7), inset 0 1px 0 rgba(255,255,255,.4);
+}
+.brand-name {
+  font-family: var(--display);
+  font-size: 19px; font-weight: 600; letter-spacing: -.02em;
+  background: var(--grad);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.brand-sub { font-size: 11px; color: var(--text-3); letter-spacing: .04em; }
+
+.theme-toggle {
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid var(--stroke);
+  background: var(--surface-2);
+  color: var(--text-2); cursor: pointer;
+  display: grid; place-items: center;
+  transition: transform .3s var(--ease), color .2s, border-color .2s;
+  position: relative; z-index: 2;
+}
+.theme-toggle:hover { color: var(--text); border-color: var(--stroke-strong); transform: rotate(18deg); }
+
+/* ── Engine pills ── */
+.engine-row {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px;
+}
+.engine-pill {
+  position: relative;
+  padding: 11px 20px; border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: var(--surface);
+  color: var(--text-2);
+  font-family: var(--font); font-size: 13px; font-weight: 600;
+  cursor: pointer; overflow: hidden;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  transition: color .25s, border-color .25s, transform .25s var(--ease);
+}
+.engine-pill:hover { color: var(--text); transform: translateY(-2px); border-color: var(--stroke-strong); }
+.engine-pill.active {
+  color: #fff; border-color: transparent;
+  background: var(--grad);
+  box-shadow: 0 10px 26px -8px rgba(124,92,255,.7), inset 0 1px 0 rgba(255,255,255,.3);
+}
+.engine-pill .dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok); margin-right: 7px; vertical-align: middle;
+  box-shadow: 0 0 8px var(--ok);
+}
+
+/* ── Cards ── */
+.card { padding: 22px; margin-bottom: 18px; }
+.section-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 14px;
+}
+.section-label svg { color: var(--a2); }
+
+textarea {
+  width: 100%; min-height: 150px;
+  padding: 16px 18px; border-radius: var(--radius-sm);
+  border: 1px solid var(--stroke);
+  background: rgba(0,0,0,.16);
+  color: var(--text); font-family: var(--font);
+  font-size: 15.5px; line-height: 1.7; resize: vertical;
+  transition: border-color .2s, box-shadow .2s, background .3s;
+}
+[data-theme="light"] textarea { background: rgba(255,255,255,.5); }
+textarea:focus {
+  outline: none; border-color: rgba(124,92,255,.6);
+  box-shadow: 0 0 0 4px rgba(124,92,255,.16); background: rgba(0,0,0,.06);
+}
+[data-theme="light"] textarea:focus { background: rgba(255,255,255,.75); }
+textarea::placeholder { color: var(--text-3); }
+.char-count {
+  text-align: right; font-size: 11px; color: var(--text-3);
+  font-family: var(--mono); margin-top: 9px;
+}
+
+/* ── Controls ── */
+.controls-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+}
+.control label {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 10px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--text-3); margin-bottom: 9px;
+}
+.control .val { color: var(--a2); font-family: var(--mono); font-weight: 600; }
+
+select {
+  width: 100%; padding: 11px 38px 11px 14px;
+  border-radius: var(--radius-sm); border: 1px solid var(--stroke);
+  background-color: rgba(0,0,0,.18); color: var(--text);
+  font-family: var(--font); font-size: 13.5px; font-weight: 550; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b6b3cf' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 13px center;
+  transition: border-color .2s, box-shadow .2s;
+}
+[data-theme="light"] select { background-color: rgba(255,255,255,.6); }
+select:focus { outline: none; border-color: rgba(124,92,255,.6); box-shadow: 0 0 0 4px rgba(124,92,255,.16); }
+
+/* range */
+.range-wrap { padding: 2px 0; }
+input[type="range"] {
+  --fill: 50%;
+  width: 100%; height: 6px; border-radius: 999px; cursor: pointer;
+  background: linear-gradient(90deg, var(--a1) var(--fill), rgba(255,255,255,.12) var(--fill));
+  appearance: none; -webkit-appearance: none; outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 4px solid var(--a1);
+  box-shadow: 0 2px 10px rgba(124,92,255,.5);
+  transition: transform .15s;
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); }
+input[type="range"]::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 4px solid var(--a1); cursor: pointer;
+}
+
+/* ── Actions ── */
+.actions { display: flex; gap: 11px; flex-wrap: wrap; margin: 4px 0 24px; }
+.btn {
+  position: relative; padding: 13px 24px; border-radius: 14px;
+  border: 1px solid var(--stroke); background: var(--surface-2);
+  color: var(--text); font-family: var(--font); font-size: 13.5px;
+  font-weight: 600; cursor: pointer; overflow: hidden;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: transform .2s var(--ease), border-color .2s, color .2s, box-shadow .25s;
+}
+.btn:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--stroke-strong); }
+.btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-primary {
+  color: #fff; border-color: transparent; background: var(--grad);
+  box-shadow: 0 12px 30px -10px rgba(124,92,255,.75), inset 0 1px 0 rgba(255,255,255,.3);
+  background-size: 160% 160%;
+}
+.btn-primary:hover:not(:disabled) { box-shadow: 0 16px 38px -10px rgba(124,92,255,.9); }
+.btn-ghost { background: transparent; }
+
+/* ── Output ── */
+.output-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.output-header h2 { font-family: var(--display); font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.engine-tag {
+  font-size: 10px; font-weight: 700; font-family: var(--mono);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--text-2);
+  padding: 5px 13px; border-radius: 999px;
+  border: 1px solid var(--stroke); background: var(--surface-2);
+}
+
+.visualizer {
+  position: relative; height: 132px; border-radius: var(--radius-sm);
+  overflow: hidden; border: 1px solid var(--stroke);
+  background: radial-gradient(120% 120% at 50% 120%, rgba(124,92,255,.18), transparent 60%), rgba(0,0,0,.25);
+}
+[data-theme="light"] .visualizer { background: radial-gradient(120% 120% at 50% 120%, rgba(124,92,255,.14), transparent 60%), rgba(255,255,255,.4); }
+.visualizer canvas { width: 100%; height: 100%; display: block; }
+.viz-hint {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--text-3); font-size: 12.5px; gap: 8px; text-align: center;
+  pointer-events: none; transition: opacity .4s;
+}
+.viz-hint svg { opacity: .7; }
+
+.audio-player { display: none; padding: 14px; margin-top: 14px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--stroke); animation: fade .4s var(--ease); }
+.audio-meta { font-size: 11px; color: var(--text-3); font-family: var(--mono); margin-bottom: 9px; }
+.audio-player audio { width: 100%; height: 40px; border-radius: 10px; }
+
+/* ── Recent ── */
+.recent-item {
+  display: flex; align-items: center; gap: 14px;
+  padding: 13px 16px; margin-bottom: 10px; border-radius: 14px;
+  background: var(--surface-2); border: 1px solid var(--stroke);
+  cursor: pointer; transition: transform .2s var(--ease), border-color .2s, background .2s;
+}
+.recent-item:hover { transform: translateX(4px); border-color: var(--stroke-strong); }
+.recent-engine {
+  font-size: 9px; font-weight: 700; font-family: var(--mono);
+  text-transform: uppercase; letter-spacing: .08em; color: #fff;
+  padding: 4px 9px; border-radius: 999px; background: var(--grad);
+}
+.recent-text { flex: 1; font-size: 13px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-dur { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
+
+/* ── Status bar ── */
+.status {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 5;
+  height: 44px; display: flex; align-items: center; gap: 12px;
+  padding: 0 24px; font-size: 12.5px; color: var(--text-2);
+  border-top: 1px solid var(--stroke);
+  background: rgba(10,8,20,.55);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+}
+[data-theme="light"] .status { background: rgba(238,240,251,.7); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); animation: pulse 2.4s ease-in-out infinite; }
+.status-kbd { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.status-kbd kbd {
+  padding: 2px 7px; border-radius: 6px; border: 1px solid var(--stroke);
+  border-bottom-width: 2px; font-size: 10px; color: var(--text-2);
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.demo-label {
+  position: fixed; top: 16px; right: 18px; z-index: 10;
+  font-size: 10px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--text-2);
+  padding: 7px 14px; border-radius: 999px;
+  border: 1px solid var(--stroke); background: var(--surface);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.spacer { height: 1px; }
+
+@media (max-width: 600px) {
+  .controls-grid { grid-template-columns: 1fr; }
+  .shell { padding: 22px 14px 130px; }
+  .brand-sub { display: none; }
+  .actions .btn { flex: 1 1 auto; justify-content: center; }
+}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="demo-label">Design 7 / 7 — Aurora</div>
+
+<div class="shell">
+
+  <header class="header glass">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round"><path d="M4 14v-4"/><path d="M9 17V7"/><path d="M14 18V6"/><path d="M19 14v-4"/></svg>
+      </div>
+      <div>
+        <div class="brand-name">Unified TTS</div>
+        <div class="brand-sub">multi-engine · text to speech</div>
+      </div>
+    </div>
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+    </button>
+  </header>
+
+  <!-- Engine pills -->
+  <div class="engine-row">
+    <button class="engine-pill active" onclick="selectEngine(this)"><span class="dot"></span>piper</button>
+    <button class="engine-pill" onclick="selectEngine(this)"><span class="dot"></span>kokoro</button>
+    <button class="engine-pill" onclick="selectEngine(this)"><span class="dot"></span>audio8</button>
+    <button class="engine-pill" onclick="selectEngine(this)">edge-tts</button>
+    <button class="engine-pill" onclick="selectEngine(this)">gtts</button>
+  </div>
+
+  <!-- Text -->
+  <div class="card glass">
+    <div class="section-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Text
+    </div>
+    <textarea id="text" placeholder="Type something to speak…" maxlength="5000" oninput="updateCount(this, 5000)"></textarea>
+    <div class="char-count"><span>0 / 5000</span></div>
+  </div>
+
+  <!-- Settings -->
+  <div class="card glass">
+    <div class="section-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      Settings
+    </div>
+    <div class="controls-grid">
+      <div class="control">
+        <label>Voice</label>
+        <select><option value="">— default —</option><option>en_US-lessac-medium</option><option>en_US-amy-medium</option><option>en_GB-daniel-medium</option></select>
+      </div>
+      <div class="control">
+        <label>Format</label>
+        <select><option>wav</option><option>mp3</option><option>flac</option></select>
+      </div>
+      <div class="control">
+        <label>Speed <span class="val" id="speedVal">1.0x</span></label>
+        <div class="range-wrap"><input type="range" min="0.5" max="2.0" step="0.1" value="1.0" oninput="setRange(this); document.getElementById('speedVal').textContent = parseFloat(this.value).toFixed(1)+'x'"></div>
+      </div>
+      <div class="control">
+        <label>Pitch <span class="val" id="pitchVal">0</span></label>
+        <div class="range-wrap"><input type="range" min="-12" max="12" step="1" value="0" oninput="setRange(this); document.getElementById('pitchVal').textContent = this.value"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-primary" onclick="generate()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Generate
+    </button>
+    <button class="btn btn-ghost">Models</button>
+    <button class="btn btn-ghost" disabled>Regenerate</button>
+    <button class="btn btn-ghost" onclick="playDemo()" id="playBtn" disabled>Play</button>
+    <button class="btn btn-ghost" disabled>Save</button>
+    <button class="btn btn-ghost" onclick="document.getElementById('text').value=''; updateCount(document.getElementById('text'),5000)">Clear</button>
+  </div>
+
+  <!-- Output -->
+  <div class="card glass">
+    <div class="output-header">
+      <h2>Output</h2>
+      <span class="engine-tag" id="engineTag">piper</span>
+    </div>
+    <div class="visualizer">
+      <canvas id="viz"></canvas>
+      <div class="viz-hint" id="vizHint">
+        <svg width="26" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 13v-2"/><path d="M8 17V7"/><path d="M13 20V4"/><path d="M18 16V8"/><path d="M22 13v-2"/></svg>
+        <span>Generate speech or press Play</span>
+      </div>
+    </div>
+    <div class="audio-player" id="audioPlayer">
+      <div class="audio-meta" id="audioMeta">piper · default · 3.42s</div>
+      <audio id="audio" controls preload="auto"></audio>
+    </div>
+  </div>
+
+  <!-- Recent -->
+  <div class="card glass">
+    <div class="section-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Recent
+    </div>
+    <div class="recent-item" onclick="playDemo()">
+      <span class="recent-engine">piper</span>
+      <span class="recent-text">Hello, this is a sample generated by the Aurora UI design demo.</span>
+      <span class="recent-dur">3.42s</span>
+    </div>
+    <div class="recent-item" onclick="playDemo()">
+      <span class="recent-engine">edge</span>
+      <span class="recent-text">The quick brown fox jumps over the lazy dog.</span>
+      <span class="recent-dur">1.87s</span>
+    </div>
+    <div class="recent-item" onclick="playDemo()">
+      <span class="recent-engine">kokoro</span>
+      <span class="recent-text">The sound of silence has a very profound impact.</span>
+      <span class="recent-dur">4.10s</span>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+</div>
+
+<div class="status">
+  <div class="status-dot"></div>
+  <span>Ready</span>
+  <span class="status-kbd"><kbd>Ctrl</kbd> <kbd>↵</kbd> generate</span>
+</div>
+
+<script>
+function toggleTheme() {
+  const h = document.documentElement;
+  h.setAttribute('data-theme', h.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+}
+function selectEngine(btn) {
+  document.querySelectorAll('.engine-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('engineTag').textContent = btn.textContent.replace(/[^a-z0-9-]/gi, '').toLowerCase();
+}
+function updateCount(el, max) {
+  el.parentElement.querySelector('.char-count span').textContent = el.value.length + ' / ' + max;
+}
+function setRange(el) {
+  const pct = (el.value - el.min) / (el.max - el.min) * 100;
+  el.style.setProperty('--fill', pct + '%');
+}
+document.querySelectorAll('input[type=range]').forEach(setRange);
+
+// ── Mock generation (no backend in demo) ──
+function generate() {
+  const btn = document.querySelector('.btn-primary');
+  btn.style.opacity = '.7'; btn.textContent = 'Generating…';
+  setTimeout(() => {
+    btn.style.opacity = ''; btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Generate';
+    document.getElementById('vizHint').style.opacity = '0';
+    document.getElementById('audioPlayer').style.display = 'block';
+    document.getElementById('playBtn').disabled = false;
+    playing = true; draw();
+  }, 1100);
+}
+
+let playing = false;
+function playDemo() { playing = true; document.getElementById('vizHint').style.opacity = '0'; draw(); }
+
+// ── Visualizer ──
+const canvas = document.getElementById('viz');
+const ctx = canvas.getContext('2d');
+function resize() { canvas.width = canvas.offsetWidth * 2; canvas.height = canvas.offsetHeight * 2; }
+resize(); window.addEventListener('resize', resize);
+
+function draw() {
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const bars = 56, bw = w / bars;
+  const t = Date.now() * 0.002;
+  for (let i = 0; i < bars; i++) {
+    let amp = playing
+      ? Math.abs(Math.sin(i * 0.35 + t * 2) * Math.cos(i * 0.11 - t)) * 0.8 + 0.08
+      : 0.04 + 0.03 * Math.abs(Math.sin(i * 0.8 + t));
+    const bh = amp * h * 0.82;
+    const g = ctx.createLinearGradient(0, h/2 - bh/2, 0, h/2 + bh/2);
+    g.addColorStop(0, getCSS('--viz-a')); g.addColorStop(1, getCSS('--viz-b'));
+    ctx.fillStyle = g;
+    ctx.globalAlpha = 0.55 + 0.4 * Math.sin(i * 0.4 + t);
+    const r = bw * 0.34;
+    roundRect(i * bw + bw/2 - r/2, h/2 - bh/2, r, bh, r/2);
+  }
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(draw);
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath(); ctx.fill();
+}
+function getCSS(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+draw();
+</script>
+</body>
+</html>

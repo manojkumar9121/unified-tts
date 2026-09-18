@@ -61,15 +61,32 @@ class Audio8ServiceManager:
 
     # ── daemon detection ─────────────────────────────────────────────────────
 
+    def _cmdline_matches(self, pid: int) -> bool:
+        """True if PID exists and looks like our Audio8 daemon."""
+        try:
+            raw = (Path("/proc") / str(pid) / "cmdline").read_bytes().decode("utf-8", errors="ignore")
+        except Exception:
+            return False
+        cmdline = raw.replace("\x00", " ")
+        return "audio8_repo.service" in cmdline and f"--port {self.port}" in cmdline
+
     def _find_daemon_pid(self) -> int | None:
         """Locate the PID of a healthy Audio8 daemon listening on our port.
 
         Scans /proc for a uvicorn process serving ``audio8_repo.service`` on
         ``self.port``. Used to adopt daemons started outside this manager
         (e.g. by a previous server process) so we can track and manage them.
+        Returns None on non-Linux hosts without /proc.
         """
+        proc = Path("/proc")
+        if not proc.is_dir():
+            return None
+        try:
+            entries = list(proc.iterdir())
+        except OSError:
+            return None
         port_flag = f"--port {self.port}"
-        for pid_dir in Path("/proc").iterdir():
+        for pid_dir in entries:
             if not pid_dir.name.isdigit():
                 continue
             try:
@@ -82,26 +99,41 @@ class Audio8ServiceManager:
         return None
 
     def is_running(self) -> bool:
-        if self._proc and self._proc.poll() is None:
-            self._mark_healthy()
-            return True
+        # A live subprocess means "starting or running", not "healthy".
+        # Require a successful health probe before reporting ready; otherwise
+        # callers POST during the 60-90s boot and get connection-refused.
+        if self._proc is not None and self._proc.poll() is None:
+            if self._health_cached():
+                return True
+            try:
+                with urllib.request.urlopen(f"{self.url}/api/health", timeout=1) as r:
+                    if r.status == 200:
+                        self._mark_healthy()
+                        return True
+            except Exception:
+                pass
+            return False
         if self._health_cached():
             return True
         if self._adopted_pid is not None:
             try:
                 os.kill(self._adopted_pid, 0)
-                self._mark_healthy()
-                return True
             except (ProcessLookupError, PermissionError):
                 self._adopted_pid = None
-        # Check pidfile
+            else:
+                if self._cmdline_matches(self._adopted_pid):
+                    self._mark_healthy()
+                    return True
+                self._adopted_pid = None
+        # Check pidfile (verify identity: PID reuse must not adopt/kill strangers)
         if self._pidfile.exists():
             try:
                 pid = int(self._pidfile.read_text().strip())
                 os.kill(pid, 0)
-                self._adopted_pid = pid
-                self._mark_healthy()
-                return True
+                if self._cmdline_matches(pid):
+                    self._adopted_pid = pid
+                    self._mark_healthy()
+                    return True
             except (ProcessLookupError, ValueError, PermissionError):
                 pass
         # Fallback: check if the port is listening and healthy, and adopt it
@@ -121,16 +153,22 @@ class Audio8ServiceManager:
     def start(self) -> bool:
         if self.is_running():
             return True
-        # Kill stale pidfile — but only if no healthy daemon is on the port
+        # Reap a stale pidfile only after verifying it really is our daemon.
+        # Unverified SIGTERM could kill an unrelated process on PID reuse.
         if self._pidfile.exists():
             try:
                 pid = int(self._pidfile.read_text().strip())
-                if pid != self._adopted_pid:
+                if pid != self._adopted_pid and self._cmdline_matches(pid):
                     os.kill(pid, signal.SIGTERM)
                     time.sleep(1)
             except (ProcessLookupError, ValueError, PermissionError):
                 pass
-            self._pidfile.unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                self._pidfile.unlink(missing_ok=True)
+            except OSError:
+                pass
 
         env = os.environ.copy()
         env["ARKTTS_MODEL_DIR"] = str(self.model_dir)
@@ -180,7 +218,7 @@ class Audio8ServiceManager:
                     target = int(self._pidfile.read_text().strip())
                 except ValueError:
                     target = None
-            if target is not None:
+            if target is not None and self._cmdline_matches(target):
                 try:
                     os.kill(target, signal.SIGTERM)
                 except (ProcessLookupError, PermissionError):

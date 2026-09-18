@@ -34,7 +34,11 @@ class TestHardSplit:
         assert " ".join(chunks) == words
 
     def test_single_long_word(self):
-        assert _hard_split("a" * 100, 10) == ["a" * 100]
+        # Overlong single words (URLs, base64) must not bypass max_chars,
+        # otherwise daemon limits (e.g. Audio8 900) are exceeded.
+        chunks = _hard_split("a" * 100, 10)
+        assert all(len(c) <= 10 for c in chunks)
+        assert "".join(chunks) == "a" * 100
 
 
 class TestChunkText:

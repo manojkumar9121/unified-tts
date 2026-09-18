@@ -15,9 +15,10 @@ export PYTHONWARNINGS="ignore::UserWarning"
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
 
 # ─── Pre-flight dependency check ─────────────────────────────────────────────
-# Fail fast when core deps or espeak-ng (needed by Kokoro) are missing.
-# Run `python3 check_deps.py` for a detailed report.
-if ! python3 check_deps.py; then
+# Fail fast when core deps are missing. Local engines (Piper/Kokoro/Audio8)
+# and system packages (espeak-ng, ffmpeg) are optional: the web UI + online
+# engines work without them. Run `python3 check_deps.py` for the full report.
+if ! python3 check_deps.py --core; then
     echo ""
     echo "Install the missing dependencies:"
     echo "  pip install -e \".[core]\"    # web UI + online engines"

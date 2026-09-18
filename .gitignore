@@ -29,6 +29,9 @@ logs/
 .playwright-mcp/
 node_modules/
 
+# --- Accidental artifacts ---
+*_io.BytesIO*
+
 # --- OS / editor ---
 .DS_Store
 *.swp

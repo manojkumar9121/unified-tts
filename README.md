@@ -5,7 +5,6 @@ server-side in Python/FastAPI; the browser is a thin client that only sends
 text and plays back audio. Engines are pluggable — local ONNX models and
 online services coexist behind one interface.
 
-![Dark UI](docs/screenshots/ui-final-dark.png)
 ![Light UI](docs/screenshots/ui-final-light.png)
 
 ## Features

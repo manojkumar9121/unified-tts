@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Unified TTS — Studio</title>
+<style>
+:root{
+  --bg:#f6f6f3;--surface:#fff;--surface-2:#f1f1ed;--surface-3:#e9e9e4;
+  --text:#20211f;--muted:#777872;--faint:#a1a19a;--line:#deded8;
+  --accent:#e84f2f;--accent-dark:#c83f25;--ok:#2d8b63;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 30px rgba(0,0,0,.035);
+}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+button,input,textarea{font:inherit}button{cursor:pointer}
+body{font-size:14px;line-height:1.4}
+.app{min-height:100vh;display:grid;grid-template-rows:58px 1fr}
+header{display:flex;align-items:center;justify-content:space-between;padding:0 22px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.82);backdrop-filter:blur(10px);position:sticky;top:0;z-index:30}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.02em}.brand-mark{width:28px;height:28px;border-radius:9px;background:var(--text);display:grid;place-items:center;color:white}.brand-mark svg{width:15px;height:15px}.brand-name{font-size:15px}
+.top-center{display:flex;align-items:center;gap:4px;position:absolute;left:50%;transform:translateX(-50%)}.top-tab{padding:7px 11px;border-radius:8px;font-size:12px;color:var(--muted);font-weight:550}.top-tab.active{background:var(--surface-2);color:var(--text)}
+.top-right{display:flex;align-items:center;gap:8px}.machine{display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:11px;color:var(--muted)}.status-dot{width:6px;height:6px;background:var(--ok);border-radius:50%}.round{width:32px;height:32px;border:1px solid var(--line);background:var(--surface);border-radius:9px;display:grid;place-items:center;color:var(--muted)}.round svg{width:15px;height:15px}
+main{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:calc(100vh - 58px)}
+aside{border-right:1px solid var(--line);padding:18px 14px;background:#f4f4f0}.side-title{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--faint);padding:0 9px 8px}.nav{display:grid;gap:3px}.nav button{height:36px;border:0;background:transparent;border-radius:8px;padding:0 9px;display:flex;align-items:center;gap:10px;color:#66675f;text-align:left;font-size:12px}.nav button:hover{background:#ecece7}.nav button.active{background:#fff;color:var(--text);font-weight:650;box-shadow:var(--shadow)}.nav svg{width:15px;height:15px;stroke:currentColor}.side-bottom{margin-top:auto;border-top:1px solid var(--line);padding:14px 9px 0}.profile{display:flex;gap:9px;align-items:center}.avatar{width:30px;height:30px;border-radius:8px;background:#252622;color:#fff;display:grid;place-items:center;font-size:10px;font-weight:700}.profile strong{font-size:11px}.profile span{display:block;color:var(--muted);font-size:10px;margin-top:1px}
+.content{padding:26px 30px 34px;max-width:1280px;width:100%;margin:0 auto}.page-head{display:flex;justify-content:space-between;align-items:end;margin-bottom:22px}.kicker{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.14em;margin-bottom:4px}.page-head h1{font-size:28px;letter-spacing:-.04em;line-height:1.05;margin:0;font-weight:740}.page-head p{margin:6px 0 0;color:var(--muted);font-size:12px}.head-actions{display:flex;gap:8px}.btn{height:36px;padding:0 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:#55564f;font-size:11px;font-weight:600}.btn:hover{background:#fafaf8}.btn.primary{background:var(--text);border-color:var(--text);color:#fff;padding:0 14px}.btn.primary:hover{background:#11120f}
+.grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(310px,.75fr);gap:20px;align-items:start}.column{display:grid;gap:18px}
+.section{background:var(--surface);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow)}.section-head{height:48px;padding:0 15px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}.section-head .title{font-size:12px;font-weight:680}.section-head .sub{font-size:10px;color:var(--faint)}
+.engine-row{padding:12px 14px;display:flex;gap:10px;align-items:center}.engine-wrap{position:relative;flex:1}.engine-trigger{width:100%;height:44px;border:1px solid var(--line);border-radius:9px;background:#fbfbf9;padding:0 12px;display:flex;align-items:center;justify-content:space-between;text-align:left}.engine-trigger:hover,.engine-wrap.open .engine-trigger{border-color:#c9c9c2;background:#fff}.engine-left{display:flex;align-items:center;gap:9px}.engine-dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}.engine-name{font-size:12px;font-weight:650}.engine-meta{font-size:10px;color:var(--muted);margin-left:4px}.engine-chevron{width:7px;height:7px;border-right:1px solid #7c7d75;border-bottom:1px solid #7c7d75;transform:rotate(45deg);margin:0 3px 4px 0}.engine-wrap.open .engine-chevron{transform:rotate(225deg) translate(-1px,-1px)}.engine-menu{position:absolute;left:0;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--line);border-radius:10px;padding:5px;box-shadow:0 16px 40px rgba(0,0,0,.12);display:none;z-index:20}.engine-wrap.open .engine-menu{display:block}.engine-option{width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;border:0;border-radius:7px;background:#fff;padding:8px 8px;text-align:left}.engine-option:hover{background:var(--surface-2)}.engine-option.current{background:#f3f3ef}.engine-option .mini-dot{width:7px;height:7px;border-radius:50%;background:#a8a9a2}.engine-option.online .mini-dot{background:var(--ok)}.option-name{font-size:11px;font-weight:650}.option-meta{font-size:9px;color:var(--muted)}.option-badge{font-size:9px;color:var(--muted)}
+.composer{padding:14px}.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.tabs{display:flex;gap:2px}.tab{height:29px;padding:0 10px;border:0;background:transparent;border-radius:7px;color:var(--muted);font-size:10px;font-weight:600}.tab.active{background:var(--surface-2);color:var(--text)}.toolset{display:flex;gap:6px}.small-btn{height:29px;padding:0 9px;border:1px solid var(--line);background:#fff;border-radius:7px;color:#686961;font-size:10px}
+.editor{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fcfcfa}.editor:focus-within{border-color:#bfbfb8;box-shadow:0 0 0 3px rgba(30,31,28,.04)}textarea{width:100%;min-height:295px;resize:vertical;display:block;border:0;outline:none;padding:16px;background:transparent;color:#31322e;font-size:14px;line-height:1.7}textarea::placeholder{color:#aaa}.editor-foot{display:flex;justify-content:space-between;padding:8px 10px;border-top:1px solid #e7e7e2;color:var(--faint);font-size:9px}.editor-foot strong{font-weight:600;color:#72736b}
+.controls{padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:14px}.control label{display:flex;justify-content:space-between;color:#71726b;font-size:10px;margin-bottom:6px}.control label strong{color:var(--text);font-size:10px}.field{height:38px;border:1px solid var(--line);border-radius:8px;background:#fbfbf9;padding:0 10px;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#3d3e39}.field .chev{width:6px;height:6px;border-right:1px solid #878880;border-bottom:1px solid #878880;transform:rotate(45deg);margin:0 2px 3px}.slider{height:38px;border:1px solid var(--line);border-radius:8px;background:#fbfbf9;padding:0 10px;display:flex;align-items:center;gap:9px}.slider input{width:100%;accent-color:var(--text)}.slider output{width:32px;text-align:right;font-size:10px;font-weight:650}.wide{grid-column:1/-1}.presets{display:flex;gap:6px;flex-wrap:wrap}.preset{height:30px;padding:0 10px;border:1px solid var(--line);background:#fff;border-radius:7px;font-size:10px;color:#696a63}.preset.active{background:#f0f0eb;color:var(--text);font-weight:650;border-color:#d1d1c9}
+.output-inner{padding:14px}.wave{height:116px;background:#f3f3ee;border:1px solid #e3e3dd;border-radius:9px;display:flex;align-items:center;gap:2px;padding:16px 10px;overflow:hidden}.bar{width:3px;background:#9f9f96;border-radius:2px;opacity:.8}.bar.active{background:var(--accent);opacity:1}.player{margin-top:11px;border:1px solid var(--line);border-radius:9px;padding:10px}.player-row{display:grid;grid-template-columns:30px auto 1fr auto;align-items:center;gap:9px}.play{width:30px;height:30px;border:0;border-radius:7px;background:var(--text);color:white;display:grid;place-items:center}.play svg{width:13px;height:13px;fill:currentColor}.time{font-size:10px;color:#6e6f67;font-variant-numeric:tabular-nums}.timeline{height:4px;background:#dddcd7;border-radius:999px;position:relative}.timeline span{display:block;width:76%;height:100%;border-radius:999px;background:var(--text)}.file-row{display:flex;justify-content:space-between;margin-top:9px;padding-top:9px;border-top:1px solid #e7e7e2;color:var(--faint);font-size:9px}.download{margin-top:10px;width:100%;height:34px;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:10px;font-weight:650;color:#55564f}
+.recent{padding:5px}.recent-item{display:grid;grid-template-columns:30px 1fr auto;gap:10px;align-items:center;padding:9px 8px;border-radius:8px}.recent-item:hover{background:var(--surface-2)}.recent-play{width:30px;height:30px;border-radius:7px;border:1px solid var(--line);background:#fff;display:grid;place-items:center;color:#55564f}.recent-play svg{width:12px;height:12px;fill:currentColor}.recent-name{font-size:11px;font-weight:620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.recent-meta{font-size:9px;color:var(--muted);margin-top:2px}.recent-time{font-size:9px;color:var(--muted)}
+.tip{padding:12px 14px;display:flex;gap:10px;align-items:flex-start;background:#f0f0eb;border:1px solid var(--line);border-radius:10px}.tip-mark{font-size:11px;font-weight:800;color:var(--accent)}.tip b{font-size:10px}.tip p{margin:2px 0 0;color:var(--muted);font-size:9px;line-height:1.5}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(20px);opacity:0;padding:8px 12px;border:1px solid #2f302c;background:#252622;color:#fff;border-radius:8px;font-size:10px;transition:.2s;z-index:50}.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media(max-width:980px){main{grid-template-columns:1fr}aside{display:none}.top-center{display:none}.grid{grid-template-columns:1fr}.content{padding:20px}.engine-row{padding-right:10px}.engine-wrap{min-width:0}}
+@media(max-width:600px){.content{padding:16px}.page-head{align-items:flex-start;gap:12px;flex-direction:column}.head-actions{width:100%}.head-actions .btn{flex:1}.controls{grid-template-columns:1fr}.wide{grid-column:auto}.machine{display:none}.top-right{gap:5px}.engine-trigger{height:42px}.engine-meta{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div class="brand"><div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9v6M9 6v12M13 9v6M17 4v16"/></svg></div><span class="brand-name">Unified TTS</span></div>
+  <div class="top-center"><div class="top-tab active">Studio</div><div class="top-tab">Batch</div><div class="top-tab">History</div></div>
+  <div class="top-right"><div class="machine"><span class="status-dot"></span> local · 15.4 GB RAM</div><button class="round" aria-label="Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 15.2A8 8 0 0 1 8.8 4a8 8 0 1 0 11.2 11.2Z"/></svg></button></div>
+</header>
+<main>
+<aside>
+  <div class="side-title">Workspace</div>
+  <div class="nav">
+    <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m9 9 6 3-6 3V9Z" fill="currentColor" stroke="none"/></svg>Studio</button>
+    <button><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M5 6h14M5 12h14M5 18h8"/></svg>Batch</button>
+    <button><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M4 6h16v12H4z"/><path d="M8 4v4M16 4v4M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01"/></svg>History</button>
+  </div>
+  <div class="side-title" style="margin-top:24px">System</div>
+  <div class="nav"><button><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3.5"/></svg>Settings</button></div>
+  <div class="side-bottom"><div class="profile"><div class="avatar">UT</div><div><strong>Local profile</strong><span>Ready to generate</span></div></div></div>
+</aside>
+<section class="content">
+  <div class="page-head"><div><div class="kicker">Text to speech</div><h1>Studio</h1><p>Write, tune, and render a voice in one place.</p></div><div class="head-actions"><button class="btn" id="resetBtn">New</button><button class="btn primary" id="generateBtn"><svg style="width:13px;height:13px;vertical-align:-2px" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7-11-7Z"/></svg> Generate</button></div></div>
+  <div class="grid">
+    <div class="column">
+      <section class="section">
+        <div class="section-head"><span class="title">Engine</span><span class="sub" id="engineStatus">54 voices available</span></div>
+        <div class="engine-row"><div class="engine-wrap" id="engineWrap"><button class="engine-trigger" id="engineTrigger" aria-expanded="false"><span class="engine-left"><span class="engine-dot"></span><span class="engine-name" id="engineName">Kokoro</span><span class="engine-meta" id="engineMeta">Local · ready</span></span><span class="engine-chevron"></span></button>
+          <div class="engine-menu" id="engineMenu">
+            <button class="engine-option current" data-name="Kokoro" data-meta="Local · ready" data-count="54 voices available"><span class="mini-dot" style="background:#2d8b63"></span><span><span class="option-name">Kokoro</span><br><span class="option-meta">Local · 54 voices</span></span><span class="option-badge">Recommended</span></button>
+            <button class="engine-option" data-name="Piper" data-meta="Local · ready" data-count="8 voices available"><span class="mini-dot" style="background:#2d8b63"></span><span><span class="option-name">Piper</span><br><span class="option-meta">Local · 8 voices</span></span><span class="option-badge">Local</span></button>
+            <button class="engine-option" data-name="Kitten-TTS" data-meta="Installed · ready" data-count="Model installed"><span class="mini-dot"></span><span><span class="option-name">Kitten-TTS</span><br><span class="option-meta">Installed model</span></span><span class="option-badge">Ready</span></button>
+            <button class="engine-option online" data-name="Audio8" data-meta="Online · connected" data-count="Online engine"><span class="mini-dot"></span><span><span class="option-name">Audio8</span><br><span class="option-meta">Online · connected</span></span><span class="option-badge">Online</span></button>
+            <button class="engine-option online" data-name="Edge TTS" data-meta="Online · connected" data-count="Online engine"><span class="mini-dot"></span><span><span class="option-name">Edge TTS</span><br><span class="option-meta">Online · connected</span></span><span class="option-badge">Online</span></button>
+            <button class="engine-option online" data-name="Gtts" data-meta="Online · connected" data-count="Online engine"><span class="mini-dot"></span><span><span class="option-name">Gtts</span><br><span class="option-meta">Online · connected</span></span><span class="option-badge">Online</span></button>
+          </div>
+        </div><button class="btn" id="engineInfo">Manage</button></div>
+      </section>
+
+      <section class="section">
+        <div class="section-head"><span class="title">Script</span><span class="sub">5,000 character limit</span></div>
+        <div class="composer">
+          <div class="toolbar"><div class="tabs"><button class="tab active" id="singleTab">Single</button><button class="tab" id="batchTab">Batch</button></div><div class="toolset"><button class="small-btn" id="clearBtn">Clear</button><button class="small-btn" id="pasteBtn">Paste</button></div></div>
+          <div class="editor"><textarea id="text" maxlength="5000">Malayalam film actor Mammootty was born to Ismail and Fatima. Along with Mohanlal, he is one of the top stars in the Malayalam film industry of South India. His performances have been praised for their naturalism and emotional depth, making him one of the most bankable actors in Indian cinema.</textarea><div class="editor-foot"><span>Tip: add paragraph breaks where you want a natural pause.</span><strong id="count">0 / 5,000</strong></div></div>
+        </div>
+      </section>
+
+      <section class="section"><div class="section-head"><span class="title">Voice</span><span class="sub">Delivery controls</span></div><div class="controls">
+        <div class="control"><label><span>Voice</span><strong id="voiceCount">54 available</strong></label><div class="field">af_bella <span class="chev"></span></div></div>
+        <div class="control"><label><span>Style</span><strong>Preset</strong></label><div class="field">Conversational <span class="chev"></span></div></div>
+        <div class="control"><label><span>Format</span><strong>WAV</strong></label><div class="field">WAV · 24 kHz <span class="chev"></span></div></div>
+        <div class="control"><label><span>Speed</span><strong id="speedLabel">1.00×</strong></label><div class="slider"><input id="speed" type="range" min="0.5" max="2" value="1" step="0.05"><output id="speedOut">1.00×</output></div></div>
+        <div class="control"><label><span>Pitch</span><strong id="pitchLabel">0</strong></label><div class="slider"><input id="pitch" type="range" min="-5" max="5" value="0"><output id="pitchOut">0</output></div></div>
+        <div class="control"><label><span>Silence</span><strong id="silenceLabel">250ms</strong></label><div class="slider"><input id="silence" type="range" min="0" max="1000" value="250" step="50"><output id="silenceOut">250ms</output></div></div>
+        <div class="control wide"><label><span>Presets</span><strong>Quick delivery</strong></label><div class="presets"><button class="preset active">Natural</button><button class="preset">Warm</button><button class="preset">Narrator</button><button class="preset">Energetic</button></div></div>
+      </div></section>
+      <div class="tip"><div class="tip-mark">●</div><div><b>Local-first</b><p>Kokoro, Piper, and Kitten-TTS process audio on this machine. Online engines (Audio8, Edge TTS, Gtts) are clearly marked.</p></div></div>
+    </div>
+
+    <div class="column">
+      <section class="section"><div class="section-head"><span class="title">Output</span><span class="sub" id="outputMeta">Kokoro · af_bella</span></div><div class="output-inner"><div class="wave" id="wave"></div><div class="player"><div class="player-row"><button class="play" id="play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7-11-7Z"/></svg></button><span class="time" id="currentTime">00:00</span><div class="timeline"><span id="progress"></span></div><span class="time" id="duration">00:00</span></div><div class="file-row"><span id="formatLabel">WAV · 24 kHz</span><span id="sizeLabel">—</span></div></div><button class="download" id="downloadBtn">Download audio</button></div></section>
+      <section class="section"><div class="section-head"><span class="title">Recent</span><button class="small-btn">View all</button></div><div class="recent">
+        <div class="recent-item"><button class="recent-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7-11-7Z"/></svg></button><div><div class="recent-name">Mammootty biography</div><div class="recent-meta">Kokoro · af_bella</div></div><div class="recent-time">00:53</div></div>
+        <div class="recent-item"><button class="recent-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7-11-7Z"/></svg></button><div><div class="recent-name">Malayalam film intro</div><div class="recent-meta">Piper · en_US</div></div><div class="recent-time">00:31</div></div>
+        <div class="recent-item"><button class="recent-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7-11-7Z"/></svg></button><div><div class="recent-name">Welcome to the studio</div><div class="recent-meta">Kokoro · af_nicole</div></div><div class="recent-time">00:04</div></div>
+      </div></section>
+    </div>
+  </div>
+</section>
+</main></div>
+<div class="toast" id="toast"></div>
+<script>
+const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
+const text=$('#text'),count=$('#count');
+function updateCount(){count.textContent=text.value.length.toLocaleString()+' / 5,000'} updateCount(); text.addEventListener('input',updateCount);
+$('#clearBtn').onclick=()=>{text.value='';updateCount();text.focus()};
+$('#pasteBtn').onclick=async()=>{try{text.value=await navigator.clipboard.readText();updateCount();showToast('Pasted from clipboard')}catch{showToast('Clipboard access was unavailable')}};
+$('#resetBtn').onclick=()=>{text.value='';updateCount();showToast('New script')};
+const wrap=$('#engineWrap'),trigger=$('#engineTrigger');trigger.onclick=()=>{const open=wrap.classList.toggle('open');trigger.setAttribute('aria-expanded',open)};
+document.addEventListener('click',e=>{if(!wrap.contains(e.target)){wrap.classList.remove('open');trigger.setAttribute('aria-expanded','false')}});
+$$('.engine-option').forEach(o=>o.onclick=()=>{const name=o.dataset.name;$('#engineName').textContent=name;$('#engineMeta').textContent=o.dataset.meta;$('#engineStatus').textContent=o.dataset.count;$$('.engine-option').forEach(x=>x.classList.remove('current'));o.classList.add('current');wrap.classList.remove('open');showToast(name+' selected')});
+$$('.preset').forEach(b=>b.onclick=()=>{$$('.preset').forEach(x=>x.classList.remove('active'));b.classList.add('active')});
+const speed=$('#speed'),pitch=$('#pitch'),silence=$('#silence');
+speed.oninput=()=>{$('#speedOut').textContent=(+speed.value).toFixed(2)+'×';$('#speedLabel').textContent=(+speed.value).toFixed(2)+'×'};
+pitch.oninput=()=>{$('#pitchOut').textContent=pitch.value;$('#pitchLabel').textContent=pitch.value};
+silence.oninput=()=>{$('#silenceOut').textContent=silence.value+'ms';$('#silenceLabel').textContent=silence.value+'ms'};
+$('#singleTab').onclick=()=>{$('#singleTab').classList.add('active');$('#batchTab').classList.remove('active')};
+$('#batchTab').onclick=()=>{$('#batchTab').classList.add('active');$('#singleTab').classList.remove('active');showToast('Batch mode selected')};
+const wave=$('#wave');
+function makeWave(activeCount=0){wave.innerHTML='';for(let i=0;i<120;i++){const b=document.createElement('i');b.className='bar'+(i<activeCount?' active':'');b.style.height=(18+Math.abs(Math.sin(i*0.48))*64+Math.random()*22)+'px';wave.appendChild(b)}}
+makeWave(0);
+let playing=false;$('#play').onclick=()=>{playing=!playing;$('#play').innerHTML=playing?'<svg viewBox="0 0 24 24"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>':'<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7-11-7Z"/></svg>'};
+$('#downloadBtn').onclick=()=>showToast('Download started');
+$('#engineInfo').onclick=()=>showToast('Engine management coming next');
+let timer;function showToast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(timer);timer=setTimeout(()=>t.classList.remove('show'),1500)}
+$('#generateBtn').onclick=()=>{const b=$('#generateBtn');const old=b.innerHTML;b.disabled=true;b.textContent='Generating…';makeWave(0);let i=0;const anim=setInterval(()=>{makeWave(i++);if(i>120){clearInterval(anim);makeWave(120)}},20);setTimeout(()=>{b.disabled=false;b.innerHTML=old;showToast('Audio generated');$('#currentTime').textContent='00:00';$('#duration').textContent='00:14';$('#progress').style.width='0%';$('#sizeLabel').textContent='1.2 MB'},2000)};
+</script>
+</body></html>

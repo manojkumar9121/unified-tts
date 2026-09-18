@@ -164,6 +164,12 @@ try {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           Generate All
         </button>
+        <div class="batch-progress-wrap" id="batchProgressWrap" style="display:none">
+          <div class="batch-progress-track">
+            <div class="batch-progress-fill" id="batchProgressFill"></div>
+          </div>
+          <span class="batch-progress-label" id="batchProgressLabel">0 / 0</span>
+        </div>
         <button class="btn btn-secondary" id="playBtn" disabled>Play</button>
         <button class="btn btn-outline" id="saveBtn" disabled>Save</button>
         <button class="btn btn-outline" id="clearBtn">Clear</button>

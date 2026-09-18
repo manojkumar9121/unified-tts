@@ -69,6 +69,55 @@ class TestGenerationValidation:
             with server._last_generation_lock:
                 server.last_generation = saved
 
+    def test_generate_extra_fields_forbidden(self, client):
+        """Finding 2 regression: GenerateRequest must reject unknown fields."""
+        r = client.post("/api/generate", json={"text": "hi", "hax": True})
+        assert r.status_code == 422
+
+    def test_regenerate_extra_fields_forbidden(self, client):
+        """Finding 2 regression: RegenerateRequest must reject unknown fields."""
+        import server
+
+        with server._last_generation_lock:
+            saved, server.last_generation = server.last_generation, None
+        try:
+            r = client.post("/api/regenerate", json={"hax": True})
+            assert r.status_code == 422
+        finally:
+            with server._last_generation_lock:
+                server.last_generation = saved
+
+
+class TestUnknownEngine:
+    """Finding 1 regression: unknown engine_id returns 400, never 500."""
+
+    def test_generate_unknown_engine_400(self, client):
+        r = client.post("/api/generate", json={"text": "hi", "engine_id": "bogus"})
+        assert r.status_code == 400
+        body = r.json()
+        assert "Unknown engine" in body["detail"]
+
+    def test_batch_unknown_engine_400(self, client):
+        r = client.post("/api/generate-batch", json={"texts": ["hi"], "engine_id": "bogus"})
+        assert r.status_code == 400
+        assert "Unknown engine" in r.json()["detail"]
+
+    def test_preview_unknown_engine_400(self, client):
+        r = client.get("/api/audio-preview", params={"engine_id": "bogus"})
+        assert r.status_code == 400
+        assert "Unknown engine" in r.json()["detail"]
+
+    def test_voices_unknown_engine_no_leak(self, client):
+        """The error must not mention registered engine names."""
+        import tts_engine
+
+        known = list(tts_engine._ENGINE_REGISTRY.keys())
+        r = client.post("/api/voices", json={"engine_id": "bogus"})
+        assert r.status_code == 400
+        detail = r.json()["detail"]
+        for eid in known:
+            assert eid not in detail
+
 
 class TestHistory:
     def test_limit_is_clamped(self, client):

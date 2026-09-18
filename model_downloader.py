@@ -157,7 +157,8 @@ def _download_to_file(url: str, dest: Path, progress: Callable[[int, int], None]
             out.write(chunk)
             transferred += len(chunk)
             if total:
-                progress(transferred, total)
+                # Report per-chunk deltas: callers accumulate downloaded += inc.
+                progress(len(chunk), total)
     tmp.rename(dest)
     progress(1, 1)
 
