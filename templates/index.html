@@ -11,7 +11,7 @@
     } catch (e) {}
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23f59e0b'/%3E%3Cstop offset='1' stop-color='%23fb7185'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cg fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M7 18v-4'/%3E%3Cpath d='M12 20v-8'/%3E%3Cpath d='M17 21v-10'/%3E%3Cpath d='M22 18v-4'/%3E%3Cpath d='M27 20v-8'/%3E%3C/g%3E%3C/svg%3E">
-  <title>Unified TTS · Audio studio</title>
+  <title>Unified TTS</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -21,7 +21,7 @@
   <header class="site-header">
     <a class="brand" href="/" aria-label="Unified TTS home">
       <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></span>
-      <span class="brand-copy"><strong>Unified TTS</strong><small>audio studio</small></span>
+      <h1 class="brand-name">Unified TTS</h1>
     </a>
     <div class="header-right">
       <div class="device-badge" id="deviceBadge" role="status" aria-live="polite">Detecting hardware…</div>
@@ -32,43 +32,34 @@
   </header>
 
   <main id="main-content">
-    <section class="studio-intro" aria-labelledby="studioTitle">
-      <div>
-        <p class="eyebrow">Text to speech / workspace</p>
-        <h1 id="studioTitle">Give your words a voice.</h1>
-        <p class="intro-copy">Shape a take, tune the delivery, and hear the result without leaving the room.</p>
+    <section class="panel engine-panel" aria-labelledby="engineHeading">
+      <div class="panel-heading compact-heading">
+        <h2 id="engineHeading">Engine</h2>
+        <span class="panel-note" id="engineOnlineNote" aria-live="polite"></span>
       </div>
-      <div class="intro-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="engine-tabs" id="engineTabs" role="tablist" aria-label="Speech engine"></div>
+      <div class="model-panel" id="modelPanel" style="display:none" aria-live="polite">
+        <div class="model-panel-row">
+          <div class="model-panel-info">
+            <span class="model-panel-title" id="modelTitle">Model not installed</span>
+            <span class="model-panel-sub" id="modelSub"></span>
+          </div>
+          <div class="model-actions">
+            <label class="sr-only" for="downloadVoice">Voice to download</label>
+            <select id="downloadVoice" class="download-voice" style="display:none"></select>
+            <button class="btn btn-primary btn-small" id="downloadModelBtn" type="button">Download model</button>
+          </div>
+        </div>
+        <div class="progress-track" id="downloadProgress" style="display:none" role="progressbar" aria-label="Model download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="progress-fill" id="downloadFill"></div></div>
+        <div class="model-panel-status" id="downloadStatus" role="status" aria-live="polite"></div>
+      </div>
     </section>
 
     <section class="workspace" role="region" aria-label="Synthesis workspace">
       <div class="workspace-main">
-        <section class="panel engine-panel" aria-labelledby="engineHeading">
-          <div class="panel-heading compact-heading">
-            <div><p class="eyebrow">01 / Source</p><h2 id="engineHeading">Choose an engine</h2></div>
-            <span class="panel-note" id="engineOnlineNote" aria-live="polite"></span>
-          </div>
-          <div class="engine-tabs" id="engineTabs" role="tablist" aria-label="Speech engine"></div>
-          <div class="model-panel" id="modelPanel" style="display:none" aria-live="polite">
-            <div class="model-panel-row">
-              <div class="model-panel-info">
-                <span class="model-panel-title" id="modelTitle">Model not installed</span>
-                <span class="model-panel-sub" id="modelSub"></span>
-              </div>
-              <div class="model-actions">
-                <label class="sr-only" for="downloadVoice">Voice to download</label>
-                <select id="downloadVoice" class="download-voice" style="display:none"></select>
-                <button class="btn btn-primary btn-small" id="downloadModelBtn" type="button">Download model</button>
-              </div>
-            </div>
-            <div class="progress-track" id="downloadProgress" style="display:none" role="progressbar" aria-label="Model download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="progress-fill" id="downloadFill"></div></div>
-            <div class="model-panel-status" id="downloadStatus" role="status" aria-live="polite"></div>
-          </div>
-        </section>
-
         <section class="panel compose-panel" aria-labelledby="composeHeading">
           <div class="panel-heading">
-            <div><p class="eyebrow">02 / Compose</p><h2 id="composeHeading">Write the take</h2></div>
+            <h2 id="composeHeading">Text</h2>
             <div class="mode-tabs" role="tablist" aria-label="Synthesis mode">
               <button class="mode-tab active" id="mode-single" type="button" role="tab" aria-selected="true" aria-controls="singleSection" data-mode="single">Single</button>
               <button class="mode-tab" id="mode-batch" type="button" role="tab" aria-selected="false" aria-controls="batchSection" data-mode="batch" tabindex="-1">Batch</button>
@@ -89,7 +80,7 @@
         </section>
 
         <section class="panel controls" aria-labelledby="controlsHeading">
-          <div class="panel-heading compact-heading"><div><p class="eyebrow">03 / Direct</p><h2 id="controlsHeading">Tune the delivery</h2></div></div>
+          <div class="panel-heading compact-heading"><h2 id="controlsHeading">Delivery</h2></div>
           <div class="control-grid">
             <div class="control-group control-wide">
               <label class="field-label" for="voice">Voice</label>
@@ -115,7 +106,7 @@
 
         <div class="actions" aria-label="Generation actions">
           <button class="btn btn-outline" id="modelsBtn" type="button" style="display:none" title="Download TTS models and voices">Models</button>
-          <button class="btn btn-primary" id="generateBtn" type="button">Generate <span aria-hidden="true">↗</span></button>
+          <button class="btn btn-primary" id="generateBtn" type="button">Generate</button>
           <button class="btn btn-outline" id="regenerateBtn" type="button" disabled title="Re-run the last generation with current settings">Regenerate</button>
           <button class="btn btn-primary" id="batchGenerateBtn" type="button" style="display:none">Generate all</button>
           <div class="batch-progress-wrap" id="batchProgressWrap" style="display:none" role="status" aria-live="polite"><div class="batch-progress-track" role="progressbar" aria-label="Batch generation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="batch-progress-fill" id="batchProgressFill"></div></div><span class="batch-progress-label" id="batchProgressLabel">0 / 0</span></div>
@@ -125,12 +116,12 @@
 
       <aside class="workspace-side" aria-label="Output and recent generations">
         <section class="output-card" aria-labelledby="outputHeading">
-          <div class="output-header"><div class="output-title"><span class="output-icon" aria-hidden="true">◒</span><h2 id="outputHeading">Output</h2></div><span class="output-engine" id="outputEngineBadge">piper</span></div>
-          <div class="visualizer-container"><div class="visualizer-hint"><span class="signal-icon" aria-hidden="true">▥</span><span>Generate speech or press Play</span></div><canvas id="visualizer" aria-label="Audio visualizer" role="img"></canvas></div>
+          <div class="output-header"><h2 class="output-title" id="outputHeading">Output</h2><span class="output-engine" id="outputEngineBadge">piper</span></div>
+          <div class="visualizer-container"><div class="visualizer-hint"><span>Generate speech or press Play</span></div><canvas id="visualizer" aria-label="Audio visualizer" role="img"></canvas></div>
           <div class="audio-player" id="audioPlayer" style="display:none"><div class="audio-meta" id="audioMeta"></div><audio id="audio" controls preload="auto"></audio></div>
         </section>
         <section class="recent-card" aria-labelledby="recentHeading">
-          <div class="recent-header"><div class="output-title"><span class="output-icon" aria-hidden="true">◷</span><h2 id="recentHeading">Recent takes</h2></div><button class="btn btn-outline btn-small" id="openHistoryBtn" type="button">View history</button></div>
+          <div class="recent-header"><h2 class="output-title" id="recentHeading">Recent takes</h2><button class="btn btn-outline btn-small" id="openHistoryBtn" type="button">View history</button></div>
           <div class="recent-list" id="recentList" aria-live="polite"></div>
         </section>
       </aside>
@@ -141,7 +132,7 @@
 
   <div class="history-overlay" id="historyOverlay"></div>
   <aside class="history-panel" id="historyPanel" role="dialog" aria-modal="true" aria-hidden="true" hidden aria-labelledby="historyTitle" aria-describedby="historyError" tabindex="-1">
-    <div class="history-header"><div><p class="eyebrow">Archive</p><h2 id="historyTitle">Generation history</h2></div><div class="history-actions"><button class="btn btn-outline btn-small btn-danger" id="cleanHistoryBtn" type="button">Clean older than 30 days</button><button class="modal-close" id="closeHistoryBtn" type="button" aria-label="Close history">✕</button></div></div>
+    <div class="history-header"><h2 id="historyTitle">Generation history</h2><div class="history-actions"><button class="btn btn-outline btn-small btn-danger" id="cleanHistoryBtn" type="button">Clean older than 30 days</button><button class="modal-close" id="closeHistoryBtn" type="button" aria-label="Close history">✕</button></div></div>
     <div class="inline-error" id="historyError" role="alert" aria-live="assertive" hidden></div>
     <div class="history-list" id="historyList" aria-busy="false"></div>
     <div class="history-pagination" id="historyPagination" aria-label="History pages"></div>
@@ -149,13 +140,13 @@
 
   <div class="modal-overlay" id="modelsOverlay"></div>
   <div class="modal" id="modelsModal" role="dialog" aria-modal="true" aria-hidden="true" hidden aria-labelledby="modelsTitle" aria-describedby="modelsError" tabindex="-1">
-    <div class="modal-header"><div class="output-title"><span class="output-icon" aria-hidden="true">↓</span><h2 id="modelsTitle">Models</h2></div><button class="modal-close" id="modelsCloseBtn" type="button" aria-label="Close models dialog">✕</button></div>
+    <div class="modal-header"><h2 class="output-title" id="modelsTitle">Models</h2><button class="modal-close" id="modelsCloseBtn" type="button" aria-label="Close models dialog">✕</button></div>
     <div class="modal-body"><p class="modal-sub">Download local models and voices. Online engines work immediately with an internet connection.</p><div class="inline-error" id="modelsError" role="alert" aria-live="assertive" hidden></div><div id="modelsList" aria-busy="false"></div></div>
   </div>
 
   <div class="modal-overlay" id="registerOverlay"></div>
   <div class="modal" id="registerModal" role="dialog" aria-modal="true" aria-hidden="true" hidden aria-labelledby="registerTitle" aria-describedby="registerError" tabindex="-1">
-    <div class="modal-header"><div class="output-title"><span class="output-icon" aria-hidden="true">＋</span><h2 id="registerTitle">Register a custom voice</h2></div><button class="modal-close" id="registerCloseBtn" type="button" aria-label="Close voice registration dialog">✕</button></div>
+    <div class="modal-header"><h2 class="output-title" id="registerTitle">Register a custom voice</h2><button class="modal-close" id="registerCloseBtn" type="button" aria-label="Close voice registration dialog">✕</button></div>
     <div class="modal-body"><p class="modal-sub">Upload a clear sample with its exact transcription. Audio8 uses the sample to build a new voice.</p><div class="inline-error" id="registerError" role="alert" aria-live="assertive" hidden></div>
       <form id="registerForm">
         <div class="form-group"><label for="regName">Voice name</label><input type="text" id="regName" placeholder="e.g. my-voice" maxlength="64" required></div>

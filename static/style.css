@@ -2119,3 +2119,84 @@ kbd { margin: 0 3px; padding: 3px 6px; border: 1px solid var(--border-default); 
 @media (prefers-reduced-motion: reduce) {
   .batch-progress-wrap.is-indeterminate .batch-progress-fill { animation: none; transform: none; }
 }
+
+/* ══ Tool-first workspace refinement ═════════════════════════════════════ */
+.site-header {
+  height: 62px;
+  padding: 0 clamp(14px, 2.5vw, 32px);
+}
+.brand { gap: 10px; }
+.brand-mark { width: 32px; height: 32px; border-radius: 9px; }
+.brand-name {
+  margin: 0;
+  font-family: "Space Grotesk", var(--font);
+  font-size: 16px;
+  letter-spacing: -.02em;
+}
+.device-badge { min-height: 30px; }
+main {
+  max-width: 1500px;
+  padding: 18px clamp(14px, 2.5vw, 32px) 88px;
+}
+.workspace {
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
+  gap: 14px;
+}
+.workspace-main, .workspace-side { gap: 12px; }
+.panel, .output-card, .recent-card {
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .14);
+}
+.panel { padding: 16px; }
+.engine-panel { padding: 12px 16px; }
+.compact-heading { margin-bottom: 10px; }
+.panel-heading h2, .output-title h2, .recent-header h2 { font-size: 15px; letter-spacing: -.01em; }
+.engine-tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
+.engine-tab { min-height: 52px; padding: 8px 9px; border-radius: 9px; }
+.engine-tab-top { font-size: 11px; }
+.engine-tab-meta { margin-top: 5px; font-size: 9px; }
+.mode-tabs { padding: 3px; border-radius: 9px; }
+.mode-tab { min-height: 34px; padding: 0 13px; border-radius: 6px; font-size: 11px; }
+.field-label { margin-bottom: 5px; font-size: 11px; }
+.field-help { margin-bottom: 8px; font-size: 11px; }
+.text-section textarea { min-height: 240px; padding: 14px; border-radius: 11px; font-size: 15px; line-height: 1.55; }
+.char-count { margin-top: 5px; font-size: 10px; }
+.status-bar {
+  position: static;
+  min-height: 48px;
+  margin-top: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+@media (max-width: 640px) {
+  .model-panel-row { align-items: stretch; flex-direction: column; gap: 8px; }
+  .model-actions { display: flex; gap: 8px; }
+  .model-actions select { flex: 1; min-width: 0; }
+  .model-panel { padding: 10px; }
+  .text-section textarea { min-height: 200px; }
+}
+.control-grid { grid-template-columns: 1.15fr 1fr 1fr; gap: 14px 12px; }
+select, input[type="text"], #regText, #regFile { min-height: 40px; border-radius: 8px; }
+.actions { gap: 7px; padding: 0; }
+.actions .btn, .secondary-actions .btn { min-height: 40px; }
+.btn { min-height: 40px; border-radius: 8px; padding: 8px 13px; }
+.btn-primary { min-width: 116px; }
+.output-card, .recent-card { padding: 16px; }
+.visualizer-container { height: 220px; margin: 14px 0; border-radius: 11px; }
+.recent-card { min-height: 130px; }
+.status-bar { min-height: 48px; padding: 0 clamp(14px, 2.5vw, 32px); }
+@media (max-width: 920px) {
+  .workspace { grid-template-columns: 1fr; }
+  .text-section textarea { min-height: 210px; }
+}
+@media (max-width: 640px) {
+  .site-header { height: 54px; }
+  main { padding: 10px 10px 82px; }
+  .panel, .output-card, .recent-card { padding: 12px; }
+  .engine-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .engine-tab { min-height: 46px; }
+  .text-section textarea { min-height: 180px; }
+  .visualizer-container { height: 170px; }
+  .control-grid { grid-template-columns: 1fr; }
+  .actions .btn, .secondary-actions .btn { min-height: 44px; }
+}
