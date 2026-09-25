@@ -6,6 +6,72 @@ Engine-specific imports are lazy, so these run with core deps only.
 import sqlite3
 
 
+class TestIsolation:
+    def test_fixture_overrides_preconfigured_runtime_paths(self):
+        import os
+        from pathlib import Path
+        import tests.conftest as test_config
+
+        configured_root = getattr(test_config._TMP, "name", test_config._TMP)
+        test_root = Path(configured_root).resolve()
+        assert Path(os.environ["TTS_DATA_DIR"]).resolve() == test_root / "data"
+        assert Path(os.environ["TTS_OUTPUT_DIR"]).resolve() == test_root / "output"
+
+
+class TestLifespan:
+    def test_context_starts_and_stops_monitor_then_shuts_down(self, monkeypatch):
+        import server
+        from fastapi.testclient import TestClient
+
+        events = []
+
+        class FakeThread:
+            def __init__(self, *args, **kwargs):
+                events.append("thread-created")
+
+            def start(self):
+                events.append("thread-started")
+
+            def join(self, timeout=None):
+                events.append(("thread-joined", timeout))
+
+        monkeypatch.setattr(server.threading, "Thread", FakeThread)
+        monkeypatch.setattr(server, "_shutdown", lambda: events.append("shutdown"))
+
+        with TestClient(server.app) as scoped_client:
+            assert scoped_client.get("/health").status_code == 200
+            assert server._monitor_stop.is_set() is False
+
+        assert events == [
+            "thread-created",
+            "thread-started",
+            ("thread-joined", 5),
+            "shutdown",
+        ]
+        assert server._monitor_stop.is_set() is True
+
+    def test_monitor_wait_is_interruptible(self, monkeypatch):
+        import server
+
+        waits = []
+
+        class StoppableEvent:
+            def is_set(self):
+                return False
+
+            def wait(self, timeout=None):
+                waits.append(timeout)
+                return True
+
+        monkeypatch.setattr(
+            server.time,
+            "sleep",
+            lambda _seconds: (_ for _ in ()).throw(AssertionError("monitor slept instead of waiting")),
+        )
+        server._monitor_loop(StoppableEvent())
+        assert waits == [15]
+
+
 class TestPages:
     def test_index_serves_html(self, client):
         r = client.get("/")
@@ -49,6 +115,10 @@ class TestGenerationValidation:
     def test_empty_text_rejected(self, client):
         r = client.post("/api/generate", json={"text": "   "})
         assert r.status_code in (400, 422)
+
+    def test_text_over_5000_characters_rejected(self, client):
+        r = client.post("/api/generate", json={"text": "a" * 5001})
+        assert r.status_code == 422
 
     def test_batch_extra_fields_forbidden(self, client):
         r = client.post(
@@ -120,6 +190,26 @@ class TestUnknownEngine:
 
 
 class TestHistory:
+    def test_equal_timestamps_are_ordered_by_descending_id(self, client, db):
+        conn = sqlite3.connect(str(db.DB_PATH))
+        ids = []
+        for filename, text in (
+            ("equal_time_first.wav", "first"),
+            ("equal_time_second.wav", "second"),
+        ):
+            cursor = conn.execute(
+                "INSERT INTO generations (filename, text, engine, voice, speed, pitch, duration, format, created_at) "
+                "VALUES (?, ?, 'piper', 'v', 1.0, 0.0, 1.0, 'wav', '2026-09-25 12:00:00')",
+                (filename, text),
+            )
+            ids.append(cursor.lastrowid)
+        conn.commit()
+        conn.close()
+
+        filenames = {"equal_time_first.wav", "equal_time_second.wav"}
+        rows = [row for row in db.get_generations(limit=500) if row["filename"] in filenames]
+        assert [row["id"] for row in rows] == [ids[1], ids[0]]
+
     def test_limit_is_clamped(self, client):
         r = client.get("/api/history", params={"limit": 10_000_000})
         assert r.status_code == 200

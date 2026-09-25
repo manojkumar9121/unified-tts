@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import subprocess
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -42,7 +43,15 @@ class _HttpResponse:
 class Audio8ServiceManager:
     """Manages the lifecycle of the Audio8 ONNX TTS subprocess."""
 
-    def __init__(self, model_dir: Path, voices_dir: Path, repo_dir: Path, port: int = 8024):
+    def __init__(
+        self,
+        model_dir: Path,
+        voices_dir: Path,
+        repo_dir: Path,
+        port: int = 8024,
+        pid_path: Path | None = None,
+        log_path: Path | None = None,
+    ):
         self.model_dir = model_dir.resolve()
         self.voices_dir = voices_dir.resolve()
         self.repo_dir = repo_dir.resolve()
@@ -50,8 +59,10 @@ class Audio8ServiceManager:
         self.url = f"http://127.0.0.1:{port}"
         self._proc: subprocess.Popen | None = None
         self._adopted_pid: int | None = None  # PID of a daemon we found already running
-        self._pidfile = Path("/tmp/audio8_unified_tts.pid")
+        self._pidfile = (pid_path or Path("/tmp/audio8_unified_tts.pid")).resolve()
+        self._log_path = (log_path or Path("/tmp/audio8_unified_tts.log")).resolve()
         self._healthy_until: float = 0.0  # monotonic deadline for cached health
+        self._lifecycle_lock = threading.Lock()
 
     def _mark_healthy(self) -> None:
         self._healthy_until = time.monotonic() + HEALTH_TTL_SECONDS
@@ -151,6 +162,10 @@ class Audio8ServiceManager:
         return False
 
     def start(self) -> bool:
+        with self._lifecycle_lock:
+            return self._start_locked()
+
+    def _start_locked(self) -> bool:
         if self.is_running():
             return True
         # Reap a stale pidfile only after verifying it really is our daemon.
@@ -182,7 +197,7 @@ class Audio8ServiceManager:
         if not venv_python.exists():
             venv_python = Path("/usr/bin/python3")
 
-        log_path = Path("/tmp/audio8_unified_tts.log")
+        log_path = self._log_path
         try:
             # The repo is a flat package (service.py at its root), so it must be
             # imported as `audio8_repo.service` with the parent dir on sys.path.
@@ -203,6 +218,10 @@ class Audio8ServiceManager:
         return self._wait_for_health(timeout=90)
 
     def stop(self) -> None:
+        with self._lifecycle_lock:
+            self._stop_locked()
+
+    def _stop_locked(self) -> None:
         """Stop the daemon. Kills the spawned subprocess or the adopted daemon."""
         if self._proc and self._proc.poll() is None:
             self._proc.send_signal(signal.SIGTERM)

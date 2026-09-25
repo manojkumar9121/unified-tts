@@ -101,7 +101,7 @@ def add_generation(filename: str, text: str, engine: str, voice: str, speed: flo
 def get_generations(limit: int = 100, offset: int = 0):
     conn = _connect()
     try:
-        cursor = conn.execute("SELECT id, filename, text, engine, voice, speed, pitch, duration, format, created_at FROM generations ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset))
+        cursor = conn.execute("SELECT id, filename, text, engine, voice, speed, pitch, duration, format, created_at FROM generations ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?", (limit, offset))
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
         return [dict(zip(columns, row)) for row in rows]
@@ -290,7 +290,7 @@ class TTSEngine:
     def __init__(self, output_dir: str = "output"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
-        self._engine_lock = threading.Lock()
+        self._engine_lock = threading.RLock()
         self._busy_lock = threading.Lock()
         # Engine is "born" now: the idle timer starts at creation, so a
         # freshly adopted daemon isn't instantly unloaded by the monitor.
@@ -351,7 +351,15 @@ class TTSEngine:
         return self.loaded
 
     def unload(self) -> None:
-        """Release model memory (RAM) held by this engine."""
+        """Release model memory only when no request is using the engine."""
+        with self._engine_lock:
+            with self._busy_lock:
+                if self.active_requests > 0:
+                    return
+            self._unload_model()
+
+    def _unload_model(self) -> None:
+        """Subclass hook for releasing model resources."""
 
     def memory_mb(self) -> float | None:
         """Live estimate of memory held by the model, in MB (or None)."""
@@ -569,9 +577,18 @@ class PiperEngine(TTSEngine):
         return 300
 
     def _load_voice(self, voice_name: str) -> None:
+        voices_dir = self._voices_dir().resolve()
+        if (
+            not voice_name
+            or any(character in voice_name for character in ("/", "\\", "."))
+            or Path(voice_name).name != voice_name
+        ):
+            raise ValueError("Invalid Piper voice name")
+        model_path = (voices_dir / f"{voice_name}.onnx").resolve()
+        config_path = (voices_dir / f"{voice_name}.onnx.json").resolve()
+        if model_path.parent != voices_dir or config_path.parent != voices_dir:
+            raise ValueError("Invalid Piper voice name")
         import piper
-        model_path = self._voices_dir() / f"{voice_name}.onnx"
-        config_path = self._voices_dir() / f"{voice_name}.onnx.json"
         if not model_path.exists():
             raise FileNotFoundError(f"Piper model not found: {model_path}")
         if not config_path.exists():
@@ -587,7 +604,7 @@ class PiperEngine(TTSEngine):
     def can_unload(self) -> bool:
         return self._voice is not None
 
-    def unload(self) -> None:
+    def _unload_model(self) -> None:
         self._voice = None
         self._current_model_path = ""
         gc.collect()
@@ -729,6 +746,10 @@ class KokoroEngine(TTSEngine):
         return 900
 
     def _ensure_loaded(self) -> None:
+        with self._engine_lock:
+            self._ensure_loaded_locked()
+
+    def _ensure_loaded_locked(self) -> None:
         if self._kokoro is not None:
             return
         model_path = self._model_dir() / "kokoro-v1.0.onnx"
@@ -764,7 +785,7 @@ class KokoroEngine(TTSEngine):
     def can_unload(self) -> bool:
         return self._kokoro is not None
 
-    def unload(self) -> None:
+    def _unload_model(self) -> None:
         self._kokoro = None
         gc.collect()
 
@@ -849,6 +870,10 @@ class KittenTTSEngine(TTSEngine):
         return 80
 
     def _ensure_loaded(self) -> None:
+        with self._engine_lock:
+            self._ensure_loaded_locked()
+
+    def _ensure_loaded_locked(self) -> None:
         if self._model is not None:
             return
         onnx = self._model_dir() / "kitten_tts_mini_v0_8.onnx"
@@ -907,7 +932,7 @@ class KittenTTSEngine(TTSEngine):
     def can_unload(self) -> bool:
         return self._model is not None
 
-    def unload(self) -> None:
+    def _unload_model(self) -> None:
         self._session = None
         self._voice_embeddings = {}
         self._phonemizer = None
@@ -1063,7 +1088,7 @@ class Audio8Engine(TTSEngine):
     def can_unload(self) -> bool:
         return self.loaded
 
-    def unload(self) -> None:
+    def _unload_model(self) -> None:
         if self._manager:
             self._manager.stop()
 

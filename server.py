@@ -79,6 +79,8 @@ set_audio8_manager(audio8_manager)
 # Seconds an engine may sit idle before auto-unloading its model from
 # memory (RAM) / stopping the Audio8 daemon.
 IDLE_UNLOAD_SECONDS = int(os.environ.get("TTS_UNLOAD_IDLE_SECONDS", "300"))
+LOCAL_SYNTHESIS_CONCURRENCY = max(1, int(os.environ.get("TTS_LOCAL_CONCURRENCY", "2")))
+_local_synthesis_slots = threading.BoundedSemaphore(LOCAL_SYNTHESIS_CONCURRENCY)
 
 
 # ─── Engine lifecycle (singleton instances + idle auto-unload) ───────────────
@@ -108,10 +110,33 @@ def engine_use(eng: TTSEngine) -> Iterator[TTSEngine]:
         eng.release()
 
 
+@contextmanager
+def generation_use(eng: TTSEngine) -> Iterator[TTSEngine]:
+    """Bound concurrent in-process local synthesis and mark the engine busy."""
+    if getattr(type(eng), "is_online", False):
+        with engine_use(eng) as active:
+            yield active
+    else:
+        with _local_synthesis_slots, engine_use(eng) as active:
+            yield active
+
+
+def _resolve_voice(eng: TTSEngine, requested_voice: str = "") -> str:
+    """Resolve a default voice and reject caller-supplied unavailable names."""
+    with engine_use(eng):
+        voices = eng.list_voices()
+    if requested_voice:
+        if requested_voice not in voices:
+            raise HTTPException(400, f"Unknown voice: {requested_voice}")
+        return requested_voice
+    return voices[0] if voices else ""
+
+
 def _monitor_loop(stop_event: threading.Event) -> None:
     """Background thread: unload engines that have been idle too long."""
     while not stop_event.is_set():
-        time.sleep(15)
+        if stop_event.wait(timeout=15):
+            break
         now = time.time()
         with _engine_cache_lock:
             cached = list(_engine_cache.values())
@@ -218,7 +243,7 @@ Format = Literal["wav", "mp3", "flac"]
 
 
 class GenerateRequest(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=5000)
     engine_id: str = "piper"
     voice: str = ""
     speed: float = SpeedField
@@ -423,12 +448,9 @@ def run_generation(
     if not text.strip():
         raise HTTPException(400, "Text is empty")
     eng = _require_engine(engine_id)
-    if not voice:
-        voices = eng.list_voices()
-        if voices:
-            voice = voices[0]
+    voice = _resolve_voice(eng, voice)
     validated = _validate_params(engine_id, params)
-    with engine_use(eng):
+    with generation_use(eng):
         filepath, duration = eng.generate(
             text, voice=voice, speed=speed, pitch=pitch, fmt=fmt, params=validated
         )
@@ -457,6 +479,7 @@ def generate(req: GenerateRequest):
     except HTTPException:
         raise
     except Exception:
+        logger.exception("unexpected generation failure")
         raise HTTPException(500, "An internal error occurred")
 
 
@@ -481,6 +504,7 @@ def regenerate(req: RegenerateRequest):
     except HTTPException:
         raise
     except Exception:
+        logger.exception("unexpected regeneration failure")
         raise HTTPException(500, "An internal error occurred")
 
 
@@ -513,7 +537,7 @@ def _run_batch_tasks(
 
     def _generate_one(idx: int) -> tuple[int, tuple[str, float] | BaseException]:
         try:
-            with engine_use(eng):
+            with generation_use(eng):
                 filepath, duration = eng.generate(
                     texts_to_process[idx],
                     voice=default_voice,
@@ -568,15 +592,7 @@ def generate_batch(req: BatchGenerateRequest):
 
     eng = _require_engine(req.engine_id)
     default_voice = ""
-    with engine_use(eng):
-        try:
-            voices = eng.list_voices()
-            if req.voice:
-                default_voice = req.voice
-            elif voices:
-                default_voice = voices[0]
-        except Exception:
-            default_voice = req.voice or ""
+    default_voice = _resolve_voice(eng, req.voice)
 
     batch_id, results, _total = _run_batch_tasks(req, eng, default_voice, validated)
     engine_id = req.engine_id
@@ -670,15 +686,7 @@ async def generate_batch_stream(req: BatchGenerateRequest):
 
     eng = _require_engine(req.engine_id)
     default_voice = ""
-    with engine_use(eng):
-        try:
-            voices = eng.list_voices()
-            if req.voice:
-                default_voice = req.voice
-            elif voices:
-                default_voice = voices[0]
-        except Exception:
-            default_voice = req.voice or ""
+    default_voice = _resolve_voice(eng, req.voice)
 
     loop = asyncio.get_running_loop()
     batch_id, results, _total = await loop.run_in_executor(
@@ -736,14 +744,11 @@ def audio_preview(voice: str = "", engine_id: str = "piper", text: str = "Hello,
     if len(text) > 500:
         raise HTTPException(400, "Preview text must be 500 characters or fewer")
     eng = _require_engine(engine_id)
+    voice = _resolve_voice(eng, voice)
     if not voice:
-        voices = eng.list_voices()
-        if voices:
-            voice = voices[0]
-        else:
-            raise HTTPException(400, "No voices available")
+        raise HTTPException(400, "No voices available")
     try:
-        with engine_use(eng):
+        with generation_use(eng):
             audio, sr = eng.preview_voice(voice, text)
         import soundfile as sf
         # uuid suffix: second-granularity timestamps collided when two
@@ -763,6 +768,7 @@ def audio_preview(voice: str = "", engine_id: str = "piper", text: str = "Hello,
     except HTTPException:
         raise
     except Exception:
+        logger.exception("unexpected voice preview failure")
         raise HTTPException(500, "An internal error occurred")
 
 
@@ -961,6 +967,35 @@ def runtime_unload(req: UnloadRequest):
 
 # ─── Audio8 endpoints ─────────────────────────────────────────────────────────
 
+MAX_UPLOAD_BYTES = 30 * 1024 * 1024
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def _read_upload_bounded(audio: UploadFile, max_bytes: int = MAX_UPLOAD_BYTES) -> bytes:
+    """Read an upload without buffering beyond the configured limit."""
+    declared = audio.headers.get("content-length")
+    if declared is not None:
+        try:
+            if int(declared) > max_bytes:
+                raise HTTPException(400, "Audio sample too large (max 30 MB)")
+        except ValueError:
+            pass
+
+    data = bytearray()
+    while len(data) < max_bytes:
+        chunk = audio.file.read(min(_UPLOAD_CHUNK_BYTES, max_bytes - len(data)))
+        if not chunk:
+            break
+        if len(chunk) > max_bytes - len(data):
+            raise HTTPException(400, "Audio sample too large (max 30 MB)")
+        data.extend(chunk)
+    if len(data) == max_bytes:
+        extra = audio.file.read(1)
+        if extra:
+            raise HTTPException(400, "Audio sample too large (max 30 MB)")
+    return bytes(data)
+
+
 
 @app.get("/api/audio8/status")
 def audio8_status():
@@ -988,15 +1023,17 @@ def register_custom_voice(
     import urllib.request
     import uuid
 
-    if not audio8_manager.is_running() and not audio8_manager.start():
-        raise HTTPException(503, "Audio8 service unavailable")
-
-    audio_bytes = audio.file.read()
+    try:
+        audio_bytes = _read_upload_bounded(audio)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("failed to read Audio8 voice upload")
+        raise HTTPException(400, "Failed to read audio file")
     if not audio_bytes:
         raise HTTPException(400, "Empty audio file")
-    max_bytes = 30 * 1024 * 1024
-    if len(audio_bytes) > max_bytes:
-        raise HTTPException(400, "Audio sample too large (max 30 MB)")
+    if not audio8_manager.is_running() and not audio8_manager.start():
+        raise HTTPException(503, "Audio8 service unavailable")
 
     boundary = uuid.uuid4().hex
 
@@ -1029,6 +1066,7 @@ def register_custom_voice(
         detail = e.read().decode("utf-8", errors="replace")[:500]
         raise HTTPException(e.code, detail)
     except Exception:
+        logger.exception("Audio8 voice registration request failed")
         raise HTTPException(502, "Audio8 registration failed")
 
 

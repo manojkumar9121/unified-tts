@@ -2,6 +2,9 @@
 
 import pytest
 
+from fastapi import HTTPException
+
+import server
 from server import _coerce_param, _validate_params
 from tts_engine import _ENGINE_REGISTRY
 
@@ -66,3 +69,121 @@ class TestSchemaIntegrity:
                     assert dflt >= lo, (eid, name)
                 if dflt is not None and hi is not None:
                     assert dflt <= hi, (eid, name)
+
+
+class TestVoiceValidation:
+    def test_traversal_voice_is_rejected_before_generation(self, client, monkeypatch):
+        class FakePiper:
+            is_online = False
+            serialize_generation = True
+
+            def get_engine_id(self):
+                return "piper"
+
+            def list_voices(self):
+                return ["safe_voice"]
+
+            def generate(self, *args, **kwargs):
+                raise AssertionError("unsafe voice reached synthesis")
+
+            def acquire(self):
+                pass
+
+            def release(self):
+                pass
+
+        monkeypatch.setattr(server, "get_engine", lambda engine_id: FakePiper())
+        response = client.post(
+            "/api/generate",
+            json={"text": "hello", "engine_id": "piper", "voice": "../../secret"},
+        )
+        assert response.status_code == 400
+        assert "voice" in response.json()["detail"].lower()
+
+    def test_piper_loader_rejects_unsafe_name_before_import(self, tmp_path, monkeypatch):
+        from tts_engine import PiperEngine
+
+        engine = PiperEngine(str(tmp_path))
+        monkeypatch.setattr(engine, "_voices_dir", lambda: tmp_path)
+        with pytest.raises(ValueError, match="voice"):
+            engine._load_voice("../secret")
+
+
+class TestUploadBounds:
+    def test_declared_oversize_is_rejected_without_reading(self, monkeypatch):
+        class ExplodingFile:
+            def read(self, size=-1):
+                raise AssertionError("oversized upload was read")
+
+        class FakeUpload:
+            headers = {"content-length": str(30 * 1024 * 1024 + 1)}
+            file = ExplodingFile()
+            filename = "reference.wav"
+            content_type = "audio/wav"
+
+        monkeypatch.setattr(server.audio8_manager, "is_running", lambda: True)
+        with pytest.raises(HTTPException) as error:
+            server.register_custom_voice(FakeUpload(), "sample", "voice")
+        assert error.value.status_code == 400
+        assert "30 MB" in error.value.detail
+
+    def test_undeclared_oversize_is_bounded_during_chunked_read(self, monkeypatch):
+        class StreamedFile:
+            def __init__(self):
+                self.calls = []
+
+            def read(self, size=-1):
+                self.calls.append(size)
+                return b"x" * size
+
+        upload = StreamedFile()
+        class FakeUpload:
+            headers = {}
+            file = upload
+            filename = "reference.wav"
+            content_type = "audio/wav"
+
+        monkeypatch.setattr(server.audio8_manager, "is_running", lambda: True)
+        with pytest.raises(HTTPException) as error:
+            server.register_custom_voice(FakeUpload(), "sample", "voice")
+        assert error.value.status_code == 400
+        assert upload.calls and max(upload.calls) <= 1024 * 1024
+
+
+class TestSanitizedErrors:
+    def test_generation_failure_logs_traceback_but_returns_generic_detail(self, monkeypatch, caplog):
+        class FailingEngine:
+            is_online = False
+            serialize_generation = True
+
+            def get_engine_id(self):
+                return "piper"
+
+            def list_voices(self):
+                return ["safe_voice"]
+
+            def generate(self, *args, **kwargs):
+                raise RuntimeError("private synthesis details")
+
+            def acquire(self):
+                pass
+
+            def release(self):
+                pass
+
+        monkeypatch.setattr(server, "get_engine", lambda engine_id: FailingEngine())
+        with caplog.at_level("ERROR", logger="unified_tts.server"):
+            response = client_for_generation_error()
+        assert response.status_code == 500
+        assert response.json() == {"detail": "An internal error occurred"}
+        assert "private synthesis details" in caplog.text
+        assert "Traceback" in caplog.text
+
+
+def client_for_generation_error():
+    from fastapi.testclient import TestClient
+
+    return TestClient(server.app).post(
+        "/api/generate",
+        json={"text": "hello", "engine_id": "piper", "voice": "safe_voice"},
+    )

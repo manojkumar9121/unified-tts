@@ -8,9 +8,9 @@ real data/, and imports the app once for the whole session.
 import os
 import tempfile
 
-_TMP = tempfile.mkdtemp(prefix="unified-tts-test-")
-os.environ.setdefault("TTS_DATA_DIR", os.path.join(_TMP, "data"))
-os.environ.setdefault("TTS_OUTPUT_DIR", os.path.join(_TMP, "output"))
+_TMP = tempfile.TemporaryDirectory(prefix="unified-tts-test-")
+os.environ["TTS_DATA_DIR"] = os.path.join(_TMP.name, "data")
+os.environ["TTS_OUTPUT_DIR"] = os.path.join(_TMP.name, "output")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,3 +33,8 @@ def db():
     import tts_engine
 
     return tts_engine
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Remove the session's isolated runtime tree after all tests finish."""
+    _TMP.cleanup()

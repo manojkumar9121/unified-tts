@@ -1,5 +1,7 @@
 """Tests for the engine registry, base-class pipeline, and param handling."""
 
+import threading
+
 import numpy as np
 import pytest
 
@@ -119,3 +121,59 @@ class TestBasePipeline:
         eng = self.FakeEngine(str(tmp_path))
         audio = eng._apply_pitch_shift(np.zeros(1000, dtype=np.float32), 16000, 2.0)
         assert len(audio) == 1000  # returned unchanged
+
+
+class TestLifecycleSafety:
+    class ModelEngine(TTSEngine):
+        name = "model-engine"
+        serialize_generation = True
+
+        def __init__(self, output_dir):
+            super().__init__(output_dir)
+            self.model = object()
+
+        def synthesize(self, text, voice="", **params):
+            return np.zeros(1, dtype=np.float32), 16000
+
+        def list_voices(self):
+            return ["voice"]
+
+        def _unload_model(self):
+            self.model = None
+
+    def test_unload_does_not_clear_model_while_request_is_active(self, tmp_path):
+        engine = self.ModelEngine(str(tmp_path))
+        engine.acquire()
+        try:
+            engine.unload()
+            assert engine.model is not None
+        finally:
+            engine.release()
+        engine.unload()
+        assert engine.model is None
+
+    @pytest.mark.parametrize("engine_id", ["kokoro", "kitten-tts"])
+    def test_concurrent_model_ensure_waits_for_serialization_lock(self, engine_id, tmp_path, monkeypatch):
+        import tts_engine
+
+        engine = tts_engine.create_engine(engine_id, str(tmp_path))
+        monkeypatch.setattr(engine, "_model_dir", lambda: tmp_path / "missing")
+        started = threading.Event()
+        finished = threading.Event()
+
+        def ensure_loaded():
+            started.set()
+            try:
+                engine._ensure_loaded()
+            except FileNotFoundError:
+                pass
+            finally:
+                finished.set()
+
+        with engine._engine_lock:
+            worker = threading.Thread(target=ensure_loaded)
+            worker.start()
+            assert started.wait(timeout=1)
+            assert finished.wait(timeout=0.05) is False
+        worker.join(timeout=2)
+        assert finished.is_set()
