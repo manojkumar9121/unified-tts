@@ -63,7 +63,7 @@ local models, no librosa/numba dependency (~150 MB pip cache):
 ```bash
 git clone https://github.com/manojkumar9121/unified-tts && cd unified-tts
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt[core]
+pip install -e ".[core]"
 bash run.sh
 ```
 
@@ -72,7 +72,7 @@ bash run.sh
 ```bash
 git clone https://github.com/manojkumar9121/unified-tts && cd unified-tts
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt        # everything, or pick extras below
+pip install -e ".[all]"        # everything, or pick extras below
 bash run.sh
 ```
 
@@ -93,11 +93,11 @@ Optional: for GPU capability reporting install CPU-only torch
 
 | Install command | What you get | pip cache size |
 |---|---|---|
-| `pip install -r requirements.txt[core]` | Web UI + edge-tts + gtts | ~150 MB |
-| `pip install -r requirements.txt[local]` | + Piper, Kokoro, Audio8 (needs espeak-ng) | ~900 MB |
-| `pip install -r requirements.txt[online]` | + edge-tts, gTTS | ~100 MB |
-| `pip install -r requirements.txt[audio]` | MP3/FLAC export (needs ffmpeg) | ~50 MB |
-| `pip install -r requirements.txt` | Everything | ~1.2 GB |
+| `pip install -e ".[core]"` | Web UI + edge-tts + gtts | ~150 MB |
+| `pip install -e ".[local]"` | + Piper, Kokoro, Audio8 (needs espeak-ng) | ~900 MB |
+| `pip install -e ".[online]"` | + edge-tts, gTTS | ~100 MB |
+| `pip install -e ".[audio]"` | MP3/FLAC export (needs ffmpeg) | ~50 MB |
+| `pip install -e ".[all]"` | Everything | ~1.2 GB |
 
 ## How it works
 
@@ -157,7 +157,7 @@ ruff check .              # lint
 mypy --ignore-missing-imports server.py tts_engine.py audio8_manager.py model_downloader.py check_deps.py
 ```
 
-CI runs lint + tests on every push (`.github/workflows/ci.yml`).
+CI runs lint, type checks, tests, and artifact smoke checks on pushes to `main` and pull requests (`.github/workflows/ci.yml`).
 
 ## API
 

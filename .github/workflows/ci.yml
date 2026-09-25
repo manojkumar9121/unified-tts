@@ -5,31 +5,81 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint:
-    name: Lint & type-check
+  quality:
+    name: Lint, types & tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install project (core deps only — engine imports are lazy)
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install project
         run: pip install -e ".[dev]"
       - name: Ruff
         run: ruff check .
       - name: Mypy
         run: mypy --ignore-missing-imports server.py tts_engine.py audio8_manager.py model_downloader.py check_deps.py
+      - name: Pytest
+        run: pytest -q
 
-  test:
-    name: Tests
+  artifact:
+    name: Package and UI smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install project
-        run: pip install -e ".[dev]"
-      - name: Pytest
-        run: pytest -q
+          cache: pip
+      - name: Install build dependencies
+        run: pip install build
+      - name: Build wheel and sdist
+        run: python -m build
+      - name: Verify packaged web assets
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          wheel = next(Path("dist").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as archive:
+              names = set(archive.namelist())
+          required = {"static/app.js", "static/style.css", "templates/index.html"}
+          missing = required - names
+          if missing:
+              raise SystemExit(f"missing packaged web assets: {sorted(missing)}")
+          print("Packaged web assets verified")
+          PY
+      - name: Install wheel in a clean environment
+        run: |
+          python -m venv /tmp/unified-tts-wheel-venv
+          /tmp/unified-tts-wheel-venv/bin/pip install dist/*.whl
+          /tmp/unified-tts-wheel-venv/bin/python -c "import server; print(server.app.title)"
+      - name: Probe health endpoint
+        run: |
+          /tmp/unified-tts-wheel-venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8010 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import time
+          import urllib.request
+          for _ in range(30):
+              try:
+                  with urllib.request.urlopen("http://127.0.0.1:8010/health", timeout=1) as response:
+                      assert response.status == 200
+                      print("Health endpoint verified")
+                      break
+              except Exception:
+                  time.sleep(0.2)
+          else:
+              raise SystemExit("health endpoint did not become ready")
+          PY

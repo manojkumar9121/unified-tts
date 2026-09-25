@@ -25,6 +25,7 @@ CORE = [
     ("numpy",         "numpy",          "pip install 'numpy>=1.24'"),
     ("soundfile",     "soundfile",      "pip install 'soundfile>=0.12'"),
     ("psutil",        "psutil",         "pip install 'psutil>=5.9'"),
+    ("multipart",     "python-multipart", "pip install 'python-multipart>=0.0.9'"),
 ]
 
 LOCAL = [
@@ -131,14 +132,14 @@ def main() -> int:
     if mode == "core":
         # Minimal install: web UI + online engines only
         ok = check(CORE)
-        check(ONLINE)  # informational only
+        ok_online = check(ONLINE)
         # espeak-ng is only needed for the Kokoro engine, ffmpeg only for
         # MP3/FLAC export — both non-fatal here (fatal=False → warn only).
         check([], system_checks=[
             ("espeak-ng", None, "  (required only for the Kokoro engine)", False),
             ("ffmpeg", None, "  (required only for MP3/FLAC export)", False),
         ])
-        return ok
+        return max(ok, ok_online)
 
     # Full check
     ok_core = check(CORE)
