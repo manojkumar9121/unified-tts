@@ -72,6 +72,51 @@ class TestSchemaIntegrity:
 
 
 class TestVoiceValidation:
+    @pytest.mark.parametrize(
+        ("is_online", "lazy_list_voices"),
+        [(True, False), (False, True)],
+        ids=["online", "daemon"],
+    )
+    def test_explicit_remote_voice_does_not_require_discovery(
+        self, is_online, lazy_list_voices
+    ):
+        class RemoteEngine:
+            def __init__(self):
+                self.list_calls = 0
+
+            def acquire(self):
+                pass
+
+            def release(self):
+                pass
+
+            def list_voices(self):
+                self.list_calls += 1
+                raise RuntimeError("voice discovery temporarily unavailable")
+
+        engine = RemoteEngine()
+        type(engine).is_online = is_online
+        type(engine).lazy_list_voices = lazy_list_voices
+
+        assert server._resolve_voice(engine, "caller-selected") == "caller-selected"
+        assert engine.list_calls == 0
+
+    def test_default_voice_still_uses_discovery(self):
+        class LocalEngine:
+            is_online = False
+            lazy_list_voices = False
+
+            def acquire(self):
+                pass
+
+            def release(self):
+                pass
+
+            def list_voices(self):
+                return ["discovered-default"]
+
+        assert server._resolve_voice(LocalEngine()) == "discovered-default"
+
     def test_traversal_voice_is_rejected_before_generation(self, client, monkeypatch):
         class FakePiper:
             is_online = False

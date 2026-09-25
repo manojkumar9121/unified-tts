@@ -62,7 +62,7 @@ class Audio8ServiceManager:
         self._pidfile = (pid_path or Path("/tmp/audio8_unified_tts.pid")).resolve()
         self._log_path = (log_path or Path("/tmp/audio8_unified_tts.log")).resolve()
         self._healthy_until: float = 0.0  # monotonic deadline for cached health
-        self._lifecycle_lock = threading.Lock()
+        self._lifecycle_lock = threading.RLock()
 
     def _mark_healthy(self) -> None:
         self._healthy_until = time.monotonic() + HEALTH_TTL_SECONDS
@@ -261,14 +261,15 @@ class Audio8ServiceManager:
             return _HttpResponse(r)
 
     def post(self, url: str, json: dict | None = None, data: bytes | None = None, timeout: float = 60.0) -> _HttpResponse:
-        """POST request against the Audio8 service (JSON body by default)."""
-        if not self.is_running():
-            raise RuntimeError("Audio8 service is not running")
-        body = _json.dumps(json).encode("utf-8") if json is not None else (data or b"")
-        headers = {"Content-Type": "application/json"} if json is not None else {}
-        req = urllib.request.Request(url, data=body, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return _HttpResponse(r)
+        """POST against Audio8 without racing lifecycle changes."""
+        with self._lifecycle_lock:
+            if not self.is_running():
+                raise RuntimeError("Audio8 service is not running")
+            body = _json.dumps(json).encode("utf-8") if json is not None else (data or b"")
+            headers = {"Content-Type": "application/json"} if json is not None else {}
+            req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return _HttpResponse(r)
 
     def _wait_for_health(self, timeout: int = 60) -> bool:
         deadline = time.time() + timeout

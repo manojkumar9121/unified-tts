@@ -127,7 +127,12 @@ def generation_use(eng: TTSEngine) -> Iterator[TTSEngine]:
 
 
 def _resolve_voice(eng: TTSEngine, requested_voice: str = "") -> str:
-    """Resolve a default voice and reject caller-supplied unavailable names."""
+    """Resolve defaults by discovery and validate explicit local voices."""
+    if requested_voice and (
+        getattr(type(eng), "is_online", False)
+        or getattr(type(eng), "lazy_list_voices", False)
+    ):
+        return requested_voice
     with engine_use(eng):
         voices = eng.list_voices()
     if requested_voice:

@@ -103,3 +103,58 @@ class TestSerializedStart:
         assert results == [True, True]
         assert len(spawned) == 1
         assert manager._proc is spawned[0]
+
+
+class TestRequestLifecycle:
+    def test_stop_waits_for_in_flight_post(self, manager, monkeypatch):
+        request_started = threading.Event()
+        release_request = threading.Event()
+        stop_called = threading.Event()
+        errors = []
+
+        class BlockingRaw:
+            status = 200
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                request_started.set()
+                assert release_request.wait(timeout=5)
+                return b"audio"
+
+        monkeypatch.setattr(manager, "is_running", lambda: True)
+        monkeypatch.setattr("audio8_manager.urllib.request.urlopen", lambda *args, **kwargs: BlockingRaw())
+        original_stop = manager._stop_locked
+
+        def observed_stop():
+            stop_called.set()
+            original_stop()
+
+        monkeypatch.setattr(manager, "_stop_locked", observed_stop)
+
+        def request():
+            try:
+                manager.post(f"{manager.url}/api/tts", json={"text": "hello"})
+            except Exception as exc:  # pragma: no cover - assertion reports thread failures
+                errors.append(exc)
+
+        request_thread = threading.Thread(target=request)
+        stop_thread = threading.Thread(target=manager.stop)
+        request_thread.start()
+        assert request_started.wait(timeout=5)
+        stop_thread.start()
+
+        assert not stop_called.wait(timeout=0.1)
+        release_request.set()
+        request_thread.join(timeout=5)
+        stop_thread.join(timeout=5)
+
+        assert not request_thread.is_alive()
+        assert not stop_thread.is_alive()
+        assert stop_called.is_set()
+        assert not errors
