@@ -79,7 +79,21 @@ def init_db():
             )
         """)
         conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_created_at ON generations (created_at DESC)
+            CREATE TABLE IF NOT EXISTS artifacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("DROP INDEX IF EXISTS idx_created_at")
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_generations_created_at_id
+            ON generations (created_at DESC, id DESC)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_artifacts_created_at
+            ON artifacts (created_at DESC, id DESC)
         """)
         conn.commit()
     finally:
@@ -114,6 +128,45 @@ def delete_generation(filename: str):
     try:
         conn.execute("DELETE FROM generations WHERE filename = ?", (filename,))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def add_artifact(path: str, kind: str, created_at: str | None = None) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO artifacts (path, kind, created_at) VALUES (?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET kind = excluded.kind, created_at = excluded.created_at
+            """,
+            (path, kind, created_at or time.strftime("%Y-%m-%d %H:%M:%S")),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_artifacts() -> list[dict]:
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "SELECT id, path, kind, created_at FROM artifacts ORDER BY created_at DESC, id DESC"
+        )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def delete_artifacts_older_than(days: int) -> list[str]:
+    conn = _connect()
+    try:
+        date_threshold = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - days * 86400))
+        paths = [row[0] for row in conn.execute("SELECT path FROM artifacts WHERE created_at < ?", (date_threshold,))]
+        conn.execute("DELETE FROM artifacts WHERE created_at < ?", (date_threshold,))
+        conn.commit()
+        return paths
     finally:
         conn.close()
 

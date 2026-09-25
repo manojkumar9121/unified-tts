@@ -22,6 +22,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Minimal usable install: web UI plus both online engines.
+core = [
+    "edge-tts>=6.1.0",
+    "gTTS>=2.5.0",
+]
 # Local ONNX engines (Piper, Kokoro, Audio8) + DSP for pitch/speed
 local = [
     "librosa>=0.10",
@@ -51,6 +56,8 @@ dev = [
     "httpx>=0.27",         # FastAPI TestClient backend
     "ruff==0.16.4",
     "mypy==2.3.1",
+    "build>=1.2",
+    "pytest-cov>=6.0",
 ]
 
 [project.scripts]
@@ -66,7 +73,12 @@ py-modules = [
     "model_downloader",
     "check_deps",
 ]
-packages = ["audio8_repo"]
+packages = ["audio8_repo", "static", "templates"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+static = ["*.js", "*.css"]
+templates = ["*.html"]
 
 [tool.ruff]
 line-length = 110

@@ -5,13 +5,15 @@ in-process for Piper/Kokoro or in the managed Audio8 background daemon),
 the client only sends text and plays back audio.
 """
 
+import heapq
+import itertools
 import json
 import logging
 import os
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -26,12 +28,15 @@ from audio8_manager import Audio8ServiceManager
 from tts_engine import (
     _ENGINE_REGISTRY,
     TTSEngine,
+    add_artifact,
     add_generation,
     create_engine,
+    delete_artifacts_older_than,
     delete_generation,
     delete_generations_older_than,
     engine_ids,
     get_all_engines,
+    get_artifacts,
     get_generations,
     init_db,
     set_audio8_manager,
@@ -469,6 +474,15 @@ def run_generation(
     return filepath, duration, filename, voice, speed, pitch, fmt
 
 
+def _generation_http_error(exc: Exception) -> HTTPException:
+    """Map known dependency failures without exposing filesystem details."""
+    if isinstance(exc, FileNotFoundError):
+        return HTTPException(409, "Required model is not installed. Download it from Models.")
+    if isinstance(exc, RuntimeError) and "audio8" in str(exc).lower():
+        return HTTPException(503, "Audio8 service unavailable")
+    return HTTPException(500, "An internal error occurred")
+
+
 @app.post("/api/generate")
 def generate(req: GenerateRequest):
     try:
@@ -478,9 +492,9 @@ def generate(req: GenerateRequest):
         return {"filename": filename, "duration": round(duration, 2), "url": f"/output/{filename}"}
     except HTTPException:
         raise
-    except Exception:
-        logger.exception("unexpected generation failure")
-        raise HTTPException(500, "An internal error occurred")
+    except Exception as exc:
+        logger.exception("generation failure")
+        raise _generation_http_error(exc)
 
 
 @app.post("/api/regenerate")
@@ -503,9 +517,9 @@ def regenerate(req: RegenerateRequest):
         return {"filename": filename, "duration": round(duration, 2), "url": f"/output/{filename}"}
     except HTTPException:
         raise
-    except Exception:
-        logger.exception("unexpected regeneration failure")
-        raise HTTPException(500, "An internal error occurred")
+    except Exception as exc:
+        logger.exception("regeneration failure")
+        raise _generation_http_error(exc)
 
 
 def _run_batch_tasks(
@@ -632,6 +646,7 @@ def generate_batch(req: BatchGenerateRequest):
             pass
         raise
     tmp_path.rename(batch_path)
+    add_artifact(batch_name, "batch_zip")
     _schedule_batch_progress_cleanup(batch_id)
 
     return FileResponse(
@@ -725,6 +740,7 @@ async def generate_batch_stream(req: BatchGenerateRequest):
             pass
         raise
     tmp_path.rename(batch_path)
+    add_artifact(batch_name, "batch_zip")
     _schedule_batch_progress_cleanup(batch_id)
 
     return FileResponse(
@@ -767,41 +783,102 @@ def audio_preview(voice: str = "", engine_id: str = "piper", text: str = "Hello,
         )
     except HTTPException:
         raise
-    except Exception:
-        logger.exception("unexpected voice preview failure")
-        raise HTTPException(500, "An internal error occurred")
+    except Exception as exc:
+        logger.exception("voice preview failure")
+        raise _generation_http_error(exc)
 
 
 # ─── History endpoints ────────────────────────────────────────────────────────
 
 
+class CleanupScheduler:
+    """One bounded daemon thread for delayed preview and progress cleanup."""
+
+    def __init__(self, max_entries: int = 1024):
+        if max_entries < 1:
+            raise ValueError("max_entries must be positive")
+        self.max_entries = max_entries
+        self._condition = threading.Condition()
+        self._queue: list[tuple[float, int, Callable[[], None]]] = []
+        self._sequence = itertools.count()
+        self.thread: threading.Thread | None = None
+        self._closed = False
+
+    @property
+    def pending_count(self) -> int:
+        with self._condition:
+            return len(self._queue)
+
+    def schedule(self, delay_seconds: float, callback: Callable[[], None]) -> bool:
+        with self._condition:
+            if self._closed:
+                callback()
+                return False
+            if len(self._queue) >= self.max_entries:
+                overflow = True
+            else:
+                overflow = False
+                heapq.heappush(
+                    self._queue,
+                    (time.monotonic() + max(0.0, delay_seconds), next(self._sequence), callback),
+                )
+                if self.thread is None:
+                    self.thread = threading.Thread(
+                        target=self._run,
+                        name="unified-tts-cleanup",
+                        daemon=True,
+                    )
+                    self.thread.start()
+                self._condition.notify()
+        if overflow:
+            callback()
+        return not overflow
+
+    def _run(self) -> None:
+        while True:
+            with self._condition:
+                if self._closed:
+                    return
+                if not self._queue:
+                    self._condition.wait()
+                    continue
+                deadline, _sequence, callback = self._queue[0]
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    self._condition.wait(timeout=remaining)
+                    continue
+                heapq.heappop(self._queue)
+            try:
+                callback()
+            except Exception:
+                logger.exception("scheduled cleanup failed")
+
+    def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
+            thread = self.thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2)
+
+
+_cleanup_scheduler = CleanupScheduler()
+
+
 def _schedule_preview_cleanup(filepath: Path, delay_seconds: float = 600) -> None:
-    """Delete a preview file after a grace period (daemon timer)."""
+    """Delete a preview file after a grace period using the shared scheduler."""
     def _remove() -> None:
         try:
-            os.remove(filepath)
+            filepath.unlink(missing_ok=True)
         except OSError:
-            pass
+            logger.warning("could not remove preview %s", filepath, exc_info=True)
 
-    timer = threading.Timer(delay_seconds, _remove)
-    timer.daemon = True
-    timer.start()
+    _cleanup_scheduler.schedule(delay_seconds, _remove)
 
 
 def _schedule_batch_progress_cleanup(batch_id: str, delay_seconds: float = 60) -> None:
-    """Forget completed batch progress after a grace period.
-
-    The batch endpoints are synchronous, so a client cannot poll mid-flight
-    (it only learns the ID from the response headers). Retaining the final
-    state briefly at least makes the progress endpoint return the completed
-    counts instead of always 404ing.
-    """
-    def _forget() -> None:
-        _batch_progress.pop(batch_id, None)
-
-    timer = threading.Timer(delay_seconds, _forget)
-    timer.daemon = True
-    timer.start()
+    """Forget completed batch progress using the shared cleanup scheduler."""
+    _cleanup_scheduler.schedule(delay_seconds, lambda: _batch_progress.pop(batch_id, None))
 
 
 def _safe_output_path(filename: str) -> Path | None:
@@ -851,8 +928,10 @@ def clean_history(req: CleanRequest):
         # Delete both the DB rows and the audio files they pointed at —
         # previously only rows went, leaving orphaned files on disk forever.
         filenames = delete_generations_older_than(req.days)
+        artifacts = delete_artifacts_older_than(req.days)
+        retained_names = list(dict.fromkeys(filenames + artifacts))
         removed = 0
-        for name in filenames:
+        for name in retained_names:
             path = _safe_output_path(name)
             if path and path.exists():
                 try:

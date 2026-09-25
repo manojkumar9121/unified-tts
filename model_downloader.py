@@ -13,15 +13,19 @@ Engines:
 from __future__ import annotations
 
 import json
+import logging
+import os
 import threading
 import urllib.request
 from collections.abc import Callable
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 BASE_DIR = Path(__file__).parent.resolve()
 MODELS_DIR = BASE_DIR / "models"
 AUDIO8_MODEL_DIR = BASE_DIR / "audio8_models"
+
+logger = logging.getLogger("unified_tts.model_downloader")
 
 HF_BASE = "https://huggingface.co"
 PIPER_REPO = "rhasspy/piper-voices"
@@ -105,6 +109,7 @@ def _new_task() -> dict:
         "message": "",
         "error": None,
         "voice": "",
+        "checksum_verified": False,
     }
 
 
@@ -131,48 +136,128 @@ def _fetch_json(url: str, timeout: float = 30.0) -> list[dict] | dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _safe_destination(base_dir: Path, remote_path: str) -> Path:
+    """Resolve a trusted relative Hugging Face path beneath ``base_dir``."""
+    posix_path = PurePosixPath(remote_path)
+    windows_path = PureWindowsPath(remote_path)
+    parts = tuple(remote_path.split("/"))
+    if (
+        not remote_path
+        or "\\" in remote_path
+        or posix_path.is_absolute()
+        or windows_path.is_absolute()
+        or not parts
+        or any(part in ("", ".", "..") for part in parts)
+    ):
+        raise ValueError(f"Unsafe remote path: {remote_path!r}")
+
+    base = base_dir.resolve()
+    destination = (base / Path(*parts)).resolve()
+    try:
+        destination.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"Remote path escapes destination: {remote_path!r}") from exc
+    return destination
+
+
 def _audio8_file_list() -> list[dict]:
     """Resolve the recursive file list of the Audio8 ONNX repo."""
     url = f"{HF_BASE}/api/models/{AUDIO8_REPO}/tree/main?recursive=true"
     data = _fetch_json(url)
-    files = [(item["path"], item.get("size", 0)) for item in data if item.get("type") == "file"]
-    return [{"path": path, "size": size} for path, size in files]
+    files: list[dict] = []
+    for item in data:
+        if item.get("type") != "file":
+            continue
+        remote_path = item.get("path")
+        if not isinstance(remote_path, str):
+            raise ValueError("Hugging Face tree entry is missing a file path")
+        _safe_destination(AUDIO8_MODEL_DIR, remote_path)
+        raw_size = item.get("size", 0)
+        size = int(raw_size) if isinstance(raw_size, (int, float)) and raw_size > 0 else None
+        files.append({"path": remote_path, "size": size})
+    return files
 
 
-def _download_to_file(url: str, dest: Path, progress: Callable[[int, int], None]) -> None:
-    """Stream ``url`` to ``dest`` (atomically via a .part temp file)."""
+def _content_length(headers) -> int | None:
+    raw = headers.get("Content-Length")
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid Content-Length header: {raw!r}") from exc
+    if value < 0:
+        raise ValueError(f"Invalid Content-Length header: {raw!r}")
+    return value
+
+
+def _download_to_file(
+    url: str,
+    dest: Path,
+    progress: Callable[[int, int], None],
+    expected_size: int | None = None,
+) -> None:
+    """Stream, verify, fsync, and atomically install one remote file."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "unified-tts/1.0"},
     )
-    with urllib.request.urlopen(req, timeout=120) as resp, tmp.open("wb") as out:
-        total = int(resp.headers.get("Content-Length") or 0)
-        transferred = 0
-        while True:
-            chunk = resp.read(256 * 1024)
-            if not chunk:
-                break
-            out.write(chunk)
-            transferred += len(chunk)
-            if total:
-                # Report per-chunk deltas: callers accumulate downloaded += inc.
-                progress(len(chunk), total)
-    tmp.rename(dest)
-    progress(1, 1)
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            response_size = _content_length(resp.headers)
+            declared_size = expected_size if expected_size is not None else response_size
+            if expected_size is not None and expected_size < 0:
+                raise ValueError(f"Invalid expected size: {expected_size}")
+            transferred = 0
+            with tmp.open("wb") as out:
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    transferred += len(chunk)
+                    if declared_size is not None and transferred > declared_size:
+                        raise ValueError(
+                            f"Download exceeded expected size: received {transferred}, expected {declared_size}"
+                        )
+                    if declared_size is not None:
+                        progress(len(chunk), declared_size)
+                out.flush()
+                os.fsync(out.fileno())
+
+        if response_size is not None and transferred != response_size:
+            raise ValueError(f"Incomplete download: received {transferred}, expected {response_size}")
+        if expected_size is not None and transferred != expected_size:
+            raise ValueError(f"Download size mismatch: received {transferred}, expected {expected_size}")
+
+        os.replace(tmp, dest)
+        try:
+            directory_fd = os.open(dest.parent, os.O_RDONLY)
+        except OSError:
+            directory_fd = -1
+        if directory_fd >= 0:
+            try:
+                os.fsync(directory_fd)
+            except OSError:
+                pass
+            finally:
+                os.close(directory_fd)
+        progress(1, 1)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 # ─── Download jobs ────────────────────────────────────────────────────────────
 
 
 def start_download(engine_id: str, voice: str = "") -> dict:
-    """Start a background download; returns the initial status."""
-    with _lock:
-        existing = _tasks.get(engine_id)
-        if existing and existing["state"] == "downloading":
-            return dict(existing)
-
+    """Atomically claim and start one background download per engine."""
     if engine_id == "piper":
         target = partial(_download_piper, voice)
     elif engine_id == "kokoro":
@@ -184,9 +269,25 @@ def start_download(engine_id: str, voice: str = "") -> dict:
     else:
         raise ValueError(f"No downloadable models for engine: {engine_id}")
 
-    thread = threading.Thread(target=target, name=f"model-download-{engine_id}", daemon=True)
-    thread.start()
-    return get_status(engine_id)
+    with _lock:
+        existing = _tasks.get(engine_id)
+        if existing and existing["state"] == "downloading":
+            return dict(existing)
+        task = _new_task()
+        task.update(
+            state="downloading",
+            voice=voice,
+            message="Preparing download",
+            error=None,
+            checksum_verified=False,
+        )
+        _tasks[engine_id] = task
+        thread = threading.Thread(target=target, name=f"model-download-{engine_id}", daemon=True)
+        try:
+            thread.start()
+        except Exception as exc:
+            task.update(state="error", error=f"Could not start download: {exc}")
+        return dict(task)
 
 
 def _download_piper(voice: str = "") -> None:
@@ -213,8 +314,14 @@ def _download_piper(voice: str = "") -> None:
             url = f"{HF_BASE}/{PIPER_REPO}/resolve/main/{rel_path}/{fname}"
             _download_to_file(url, dest_dir / fname, progress)
             _update("piper", message=f"Saved {fname}")
-        _update("piper", state="done", percent=100.0, message=f"Installed Piper voice {voice}")
+        _update(
+            "piper",
+            state="done",
+            percent=100.0,
+            message=f"Installed Piper voice {voice} (size verified; pinned checksum unavailable)",
+        )
     except Exception as exc:
+        logger.exception("Piper model download failed")
         _update("piper", state="error", error=f"Piper download failed: {exc}")
 
 
@@ -236,8 +343,14 @@ def _download_kokoro() -> None:
             url = f"{HF_BASE}/{KOKORO_REPO}/resolve/main/{fname}"
             _download_to_file(url, dest_dir / fname, progress)
             _update("kokoro", message=f"Saved {fname}")
-        _update("kokoro", state="done", percent=100.0, message="Installed Kokoro model")
+        _update(
+            "kokoro",
+            state="done",
+            percent=100.0,
+            message="Installed Kokoro model (size verified; pinned checksum unavailable)",
+        )
     except Exception as exc:
+        logger.exception("Kokoro model download failed")
         _update("kokoro", state="error", error=f"Kokoro download failed: {exc}")
 
 
@@ -259,8 +372,14 @@ def _download_kitten_tts() -> None:
             url = f"{HF_BASE}/{KITTEN_TTS_REPO}/resolve/main/{fname}"
             _download_to_file(url, dest_dir / fname, progress)
             _update("kitten-tts", message=f"Saved {fname}")
-        _update("kitten-tts", state="done", percent=100.0, message="Installed Kitten TTS model")
+        _update(
+            "kitten-tts",
+            state="done",
+            percent=100.0,
+            message="Installed Kitten TTS model (size verified; pinned checksum unavailable)",
+        )
     except Exception as exc:
+        logger.exception("Kitten TTS model download failed")
         _update("kitten-tts", state="error", error=f"Kitten TTS download failed: {exc}")
 
 
@@ -272,21 +391,28 @@ def _download_audio8() -> None:
     except Exception as exc:
         _update("audio8", state="error", error=f"Failed to list Audio8 files: {exc}")
         return
-    total_bytes = sum(item["size"] for item in files)
+    total_bytes = sum(item["size"] or 0 for item in files)
     downloaded = 0
 
     def progress(inc: int, _total: int) -> None:
         nonlocal downloaded
         downloaded += inc
-        pct = min(99.0, downloaded / total_bytes * 100)
+        pct = min(99.0, downloaded / total_bytes * 100) if total_bytes else 1.0
         _update("audio8", percent=pct, message=f"Downloading Audio8 model … {pct:.0f}%")
 
     try:
         for item in files:
             url = f"{HF_BASE}/{AUDIO8_REPO}/resolve/main/{item['path']}"
-            _download_to_file(url, dest_dir / item["path"], progress)
-        _update("audio8", state="done", percent=100.0, message="Installed Audio8 model (start the engine to load it)")
+            destination = _safe_destination(dest_dir, item["path"])
+            _download_to_file(url, destination, progress, expected_size=item["size"])
+        _update(
+            "audio8",
+            state="done",
+            percent=100.0,
+            message="Installed Audio8 model (size verified; pinned checksum unavailable)",
+        )
     except Exception as exc:
+        logger.exception("Audio8 model download failed")
         _update("audio8", state="error", error=f"Audio8 download failed: {exc}")
 
 
