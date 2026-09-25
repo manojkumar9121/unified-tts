@@ -17,12 +17,15 @@ let switchToken = 0;
 let engineInfo = {};   // { engineId: {voices[], is_online, voice_count, error, cap, params, ...} }
 let canRegenerate = false;
 let downloadPollTimer = null;
+let apiKey = '';
+let lastFocused = {};
 
 // ── DOM refs ───────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
 // ── Init ───────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  consumeApiKeyFromUrl();
   initTheme();
   await Promise.all([loadEngines(), loadSystem()]);
   renderEngineTabs();
@@ -39,17 +42,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ── API helpers ────────────────────────────────────────────────────────
-// When the server sets TTS_API_KEY, every /api/* call needs X-API-Key.
-// Persist an operator-provided key in localStorage (?api_key=... once or
-// prompt) so the shipped UI keeps working behind an exposed server.
-function apiKeyHeaders() {
+// Read a one-time key from the URL, scrub it before any request, and keep it
+// only in memory/sessionStorage. Never persist credentials in localStorage.
+function consumeApiKeyFromUrl() {
   try {
-    const params = new URLSearchParams(window.location.search);
-    const fromUrl = params.get('api_key');
-    if (fromUrl) localStorage.setItem('tts-api-key', fromUrl);
-    const key = fromUrl || localStorage.getItem('tts-api-key') || '';
-    return key ? { 'X-API-Key': key } : {};
-  } catch { return {}; }
+    const url = new URL(window.location.href);
+    const fromUrl = url.searchParams.get('api_key');
+    if (fromUrl) {
+      apiKey = fromUrl;
+      sessionStorage.setItem('tts-api-key', fromUrl);
+      url.searchParams.delete('api_key');
+      window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
+    } else {
+      apiKey = sessionStorage.getItem('tts-api-key') || '';
+    }
+  } catch {
+    apiKey = '';
+  }
+}
+
+function apiKeyHeaders() {
+  return apiKey ? { 'X-API-Key': apiKey } : {};
 }
 
 async function apiFetch(path, opts = {}) {
@@ -71,6 +84,64 @@ function formatDuration(s) {
   if (!isFinite(n)) return '—';
   return (Math.round(n * 100) / 100) + 's';
 }
+
+function setInlineError(id, message) {
+  const node = $(id);
+  if (!node) return;
+  node.textContent = message || '';
+  node.hidden = !message;
+}
+
+function openDialog(modalId, overlayId) {
+  const modal = $(modalId);
+  const overlay = $(overlayId);
+  if (!modal) return;
+  lastFocused[modalId] = document.activeElement;
+  modal.hidden = false;
+  modal.setAttribute('aria-hidden', 'false');
+  if (overlay) overlay.classList.add('open');
+  modal.classList.add('open');
+  setTimeout(() => modal.focus(), 0);
+}
+
+function closeDialog(modalId, overlayId) {
+  const modal = $(modalId);
+  const overlay = $(overlayId);
+  if (modal) {
+    modal.classList.remove('open');
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  if (overlay) overlay.classList.remove('open');
+  const restore = lastFocused[modalId];
+  delete lastFocused[modalId];
+  if (restore && typeof restore.focus === 'function') restore.focus();
+}
+
+function handleDialogKeys(event) {
+  const dialogs = [
+    ['modelsModal', 'modelsOverlay', closeModelsModal],
+    ['registerModal', 'registerOverlay', closeRegister],
+    ['historyPanel', 'historyOverlay', closeHistory],
+  ];
+  const active = dialogs.find(([modalId]) => $(modalId)?.classList.contains('open'));
+  if (!active) return;
+  const [modalId, , close] = active;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    close();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [...$(modalId).querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), audio, [tabindex]:not([tabindex="-1"])')].filter(el => el.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+}
+
+document.addEventListener('keydown', handleDialogKeys);
 
 // ── Theme ──────────────────────────────────────────────────────────────
 // Persisted in localStorage; an inline <head> script applies it before
@@ -136,49 +207,54 @@ async function loadEngines() {
 
 function renderEngineTabs() {
   const container = $('engineTabs');
-  container.innerHTML = '';
+  container.replaceChildren();
   ENGINE_IDS.forEach(eid => {
-    const info = engineInfo[eid];
+    const info = engineInfo[eid] || {};
     const btn = document.createElement('button');
-    btn.className = 'engine-tab' + (eid === currentEngine ? ' active' : '');
+    const selected = eid === currentEngine;
+    btn.type = 'button';
+    btn.className = 'engine-tab' + (selected ? ' active' : '');
     btn.dataset.engine = eid;
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', String(selected));
+    btn.setAttribute('aria-controls', 'singleSection');
+    btn.tabIndex = selected ? 0 : -1;
 
-    let dot = '';
+    let dotClass = '';
     let metaCls = '';
     let meta = 'offline';
-    if (info) {
-      if (info.error) {
-        dot = '<span class="error-dot"></span>';
-        meta = 'unavailable';
-      } else if (info.is_online) {
-        dot = '<span class="online-dot"></span>';
-        meta = 'online';
-      } else if (info.is_downloadable && !info.installed) {
-        dot = '<span class="download-dot"></span>';
-        meta = 'download model';
-      } else if (info.is_downloadable && info.installed) {
-        metaCls = 'cap-ok';
-        meta = info.voice_count > 0 ? info.voice_count + ' voices' : 'installed';
-      } else if (info.cap && !info.cap.runnable) {
-        metaCls = 'cap-warn';
-        meta = info.cap.requirement_mb
-          ? `needs ${(info.cap.requirement_mb / 1024).toFixed(1)} GB RAM`
-          : 'cannot run';
-      } else if (info.voice_count > 0) {
-        metaCls = 'cap-ok';
-        meta = info.voice_count + ' voices';
-      } else {
-        meta = 'no models';
-      }
-    }
+    if (info.error) { dotClass = 'error-dot'; meta = 'unavailable'; }
+    else if (info.is_online) { dotClass = 'online-dot'; meta = 'online'; }
+    else if (info.is_downloadable && !info.installed) { dotClass = 'download-dot'; meta = 'download model'; }
+    else if (info.is_downloadable && info.installed) { metaCls = 'cap-ok'; meta = info.voice_count > 0 ? info.voice_count + ' voices' : 'installed'; }
+    else if (info.cap && !info.cap.runnable) { metaCls = 'cap-warn'; meta = info.cap.requirement_mb ? 'needs ' + (info.cap.requirement_mb / 1024).toFixed(1) + ' GB RAM' : 'cannot run'; }
+    else if (info.voice_count > 0) { metaCls = 'cap-ok'; meta = info.voice_count + ' voices'; }
+    else { meta = 'no models'; }
 
-    btn.innerHTML = `
-      <span class="engine-tab-top">${dot}<span class="engine-tab-name">${eid}</span></span>
-      <span class="engine-tab-meta ${metaCls}">${meta}</span>`;
-
+    const top = document.createElement('span');
+    top.className = 'engine-tab-top';
+    if (dotClass) { const dot = document.createElement('span'); dot.className = dotClass; top.append(dot); }
+    const name = document.createElement('span'); name.className = 'engine-tab-name'; name.textContent = eid; top.append(name);
+    const status = document.createElement('span'); status.className = 'engine-tab-meta ' + metaCls; status.textContent = meta;
+    btn.append(top, status);
     btn.addEventListener('click', () => switchEngine(eid));
+    btn.addEventListener('keydown', e => moveEngineTab(e, btn));
     container.appendChild(btn);
   });
+}
+
+function moveEngineTab(event, current) {
+  const buttons = [...$('engineTabs').querySelectorAll('[role="tab"]')];
+  const index = buttons.indexOf(current);
+  let next = index;
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % buttons.length;
+  else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + buttons.length) % buttons.length;
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = buttons.length - 1;
+  else return;
+  event.preventDefault();
+  buttons[next].focus();
+  switchEngine(buttons[next].dataset.engine);
 }
 
 async function switchEngine(eid) {
@@ -245,18 +321,16 @@ function setupModelPanel() {
   $('modelsBtn').addEventListener('click', openModelsModal);
   $('modelsCloseBtn').addEventListener('click', closeModelsModal);
   $('modelsOverlay').addEventListener('click', closeModelsModal);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModelsModal(); });
 }
 
 function openModelsModal() {
-  $('modelsOverlay').classList.add('open');
-  $('modelsModal').classList.add('open');
+  setInlineError('modelsError', '');
+  openDialog('modelsModal', 'modelsOverlay');
   renderModelsList();
 }
 
 function closeModelsModal() {
-  $('modelsOverlay').classList.remove('open');
-  $('modelsModal').classList.remove('open');
+  closeDialog('modelsModal', 'modelsOverlay');
   if (modelsModalTimer) { clearInterval(modelsModalTimer); modelsModalTimer = null; }
 }
 
@@ -279,8 +353,8 @@ async function renderModelsList() {
     }
     if (modelsModalTimer) clearInterval(modelsModalTimer);
     modelsModalTimer = anyDownloading ? setInterval(renderModelsList, 1000) : null;
-  } catch {
-    list.innerHTML = '<p class="modal-sub">Failed to load model list.</p>';
+  } catch (e) {
+    setInlineError('modelsError', 'Could not load models: ' + e.message);
   }
 }
 
@@ -597,16 +671,32 @@ function getEngineParams(eid) {
 
 // ── Mode tabs ──────────────────────────────────────────────────────────
 function setupModeTabs() {
-  document.querySelectorAll('.mode-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.mode-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const mode = btn.dataset.mode;
-      $('singleSection').style.display = mode === 'single' ? '' : 'none';
-      $('batchSection').style.display = mode === 'batch' ? '' : 'none';
-      $('generateBtn').style.display = mode === 'single' ? '' : 'none';
-      $('regenerateBtn').style.display = mode === 'single' ? '' : 'none';
-      $('batchGenerateBtn').style.display = mode === 'batch' ? '' : 'none';
+  const tabs = [...document.querySelectorAll('.mode-tab')];
+  const selectMode = (mode, focus = false) => {
+    tabs.forEach(tab => {
+      const selected = tab.dataset.mode === mode;
+      tab.classList.toggle('active', selected);
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      if (selected && focus) tab.focus();
+    });
+    $('singleSection').style.display = mode === 'single' ? '' : 'none';
+    $('batchSection').style.display = mode === 'batch' ? '' : 'none';
+    $('generateBtn').style.display = mode === 'single' ? '' : 'none';
+    $('regenerateBtn').style.display = mode === 'single' ? '' : 'none';
+    $('batchGenerateBtn').style.display = mode === 'batch' ? '' : 'none';
+  };
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => selectMode(tab.dataset.mode));
+    tab.addEventListener('keydown', event => {
+      let next = index;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length;
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.length) % tabs.length;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      selectMode(tabs[next].dataset.mode, true);
     });
   });
 }
@@ -730,8 +820,12 @@ async function doBatchGenerate() {
   const fill = $('batchProgressFill');
   const label = $('batchProgressLabel');
   wrap.style.display = '';
-  fill.style.width = '0%';
-  label.textContent = `0 / ${lines.length}`;
+  wrap.classList.add('is-indeterminate');
+  const track = wrap.querySelector('.batch-progress-track');
+  track.removeAttribute('aria-valuenow');
+  track.setAttribute('aria-valuetext', `Working on ${lines.length} items`);
+  fill.style.width = '32%';
+  label.textContent = `Working… ${lines.length} items`;
   try {
     const resp = await fetch('/api/generate-batch-stream', {
       method: 'POST',
@@ -762,6 +856,7 @@ async function doBatchGenerate() {
   } catch (e) {
     setStatus('err', e.message);
   }
+  wrap.classList.remove('is-indeterminate');
   wrap.style.display = 'none';
   setLoading(false);
 }
@@ -821,6 +916,8 @@ function clearAll() {
   $('audioPlayer').style.display = 'none';
   $('playBtn').disabled = true;
   $('saveBtn').disabled = true;
+  $('regenerateBtn').disabled = true;
+  canRegenerate = false;
   stopVisualizer();
 }
 
@@ -879,18 +976,16 @@ function setupRegister() {
   $('registerCancelBtn').addEventListener('click', closeRegister);
   $('registerOverlay').addEventListener('click', closeRegister);
   $('registerForm').addEventListener('submit', submitRegister);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeRegister(); });
 }
 
 function openRegister() {
-  $('registerOverlay').classList.add('open');
-  $('registerModal').classList.add('open');
+  setInlineError('registerError', '');
+  openDialog('registerModal', 'registerOverlay');
   setTimeout(() => $('regName').focus(), 60);
 }
 
 function closeRegister() {
-  $('registerOverlay').classList.remove('open');
-  $('registerModal').classList.remove('open');
+  closeDialog('registerModal', 'registerOverlay');
 }
 
 async function submitRegister(e) {
@@ -899,7 +994,7 @@ async function submitRegister(e) {
   const text = $('regText').value.trim();
   const file = $('regFile').files[0];
   if (!name || !text || !file) {
-    setStatus('warn', 'Fill all fields and choose an audio sample');
+    setInlineError('registerError', 'Fill all fields and choose an audio sample.');
     return;
   }
   const fd = new FormData();
@@ -911,6 +1006,8 @@ async function submitRegister(e) {
   const btn = $('registerSubmitBtn');
   btn.disabled = true;
   btn.classList.add('loading');
+  setInlineError('registerError', '');
+  $('registerModal').setAttribute('aria-busy', 'true');
   setStatus('warn', 'Registering voice — this can take a minute…');
   try {
     const res = await fetch('/api/voices/register', { method: 'POST', body: fd, headers: { ...apiKeyHeaders() } });
@@ -923,8 +1020,10 @@ async function submitRegister(e) {
     const sel = $('voice');
     [...sel.options].some(o => { if (o.value === name) { sel.value = name; return true; } return false; });
   } catch (err) {
+    setInlineError('registerError', 'Registration failed: ' + err.message);
     setStatus('err', 'Registration failed: ' + err.message);
   } finally {
+    $('registerModal').setAttribute('aria-busy', 'false');
     btn.disabled = false;
     btn.classList.remove('loading');
   }
@@ -1086,6 +1185,7 @@ function setLoading(loading) {
   $('generateBtn').disabled = loading;
   $('batchGenerateBtn').disabled = loading;
   $('regenerateBtn').disabled = loading || !canRegenerate;
+  $('main-content').setAttribute('aria-busy', String(loading));
   document.querySelectorAll('#generateBtn, #batchGenerateBtn, #regenerateBtn').forEach(b =>
     b.classList.toggle('loading', loading));
   setStatus(loading ? 'warn' : 'ok', loading ? 'Generating…' : 'Ready');
@@ -1093,65 +1193,98 @@ function setLoading(loading) {
 
 // ── History ────────────────────────────────────────────────────────────
 function setupHistory() {
-  $('openHistoryBtn').addEventListener('click', () => { historyPage = 0; loadHistory(); openHistory(); });
+  $('openHistoryBtn').addEventListener('click', () => { historyPage = 0; openHistory(); loadHistory(); });
   $('closeHistoryBtn').addEventListener('click', closeHistory);
   $('historyOverlay').addEventListener('click', closeHistory);
   $('cleanHistoryBtn').addEventListener('click', cleanHistory);
 }
 
 async function loadHistory() {
+  const list = $('historyList');
+  list.setAttribute('aria-busy', 'true');
+  setInlineError('historyError', '');
   try {
     const data = await apiFetch(`/api/history?limit=50&offset=${historyPage * 50}`);
     renderHistory(data.generations || []);
   } catch (e) {
+    setInlineError('historyError', 'Could not load history: ' + e.message);
     setStatus('err', 'Failed to load history');
+  } finally {
+    list.setAttribute('aria-busy', 'false');
   }
 }
 
 function renderHistory(items) {
   const list = $('historyList');
+  list.replaceChildren();
   if (!items.length) {
-    list.innerHTML = `
-      <div class="history-empty">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 8l8 8"/><path d="M16 8l-8 8"/></svg>
-        <div class="history-empty-title">No generations yet</div>
-        <div class="history-empty-sub">Generated audio will appear here</div>
-      </div>`;
+    const empty = document.createElement('div');
+    empty.className = 'history-empty';
+    empty.textContent = 'No generations yet — your completed takes will appear here.';
+    list.appendChild(empty);
+    renderHistoryPagination(0);
     return;
   }
-  list.innerHTML = items.map(g => `
-    <div class="history-item">
-      <div class="hi-top">
-        <span class="hi-engine">${g.engine}</span>
-        <span class="hi-duration">${formatDuration(g.duration)} · ${escHtml(g.voice || 'default')}</span>
-      </div>
-      <div class="hi-text" title="${escHtml(g.text)}">${escHtml(g.text)}</div>
-      <div class="hi-bottom">
-        <audio controls preload="none" src="/output/${g.filename}?t=${Date.now()}"></audio>
-        <button class="hi-delete" data-fn="${escHtml(g.filename)}" title="Delete">🗑</button>
-      </div>
-    </div>
-  `).join('');
-  list.querySelectorAll('.hi-delete').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      await apiFetch('/api/history/delete', { method: 'POST', body: JSON.stringify({ filename: btn.dataset.fn }) });
-      btn.closest('.history-item').remove();
-    });
+  items.forEach(g => {
+    const item = document.createElement('article');
+    item.className = 'history-item';
+    const top = document.createElement('div'); top.className = 'hi-top';
+    const engine = document.createElement('span'); engine.className = 'hi-engine'; engine.textContent = String(g.engine || 'unknown');
+    const duration = document.createElement('span'); duration.className = 'hi-duration'; duration.textContent = formatDuration(g.duration) + ' · ' + (g.voice || 'default');
+    const text = document.createElement('div'); text.className = 'hi-text'; text.textContent = g.text || ''; text.title = g.text || '';
+    const bottom = document.createElement('div'); bottom.className = 'hi-bottom';
+    const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = '/output/' + encodeURIComponent(g.filename) + '?t=' + Date.now();
+    const remove = document.createElement('button'); remove.className = 'hi-delete'; remove.type = 'button'; remove.dataset.fn = g.filename; remove.setAttribute('aria-label', 'Delete this generation'); remove.textContent = '⌫';
+    remove.addEventListener('click', () => deleteHistoryItem(remove, g.filename));
+    top.append(engine, duration); bottom.append(audio, remove); item.append(top, text, bottom); list.appendChild(item);
   });
+  renderHistoryPagination(items.length);
+}
+
+function renderHistoryPagination(count) {
+  const pager = $('historyPagination');
+  pager.replaceChildren();
+  const prev = document.createElement('button'); prev.className = 'btn btn-outline btn-small'; prev.type = 'button'; prev.textContent = '← Previous'; prev.disabled = historyPage === 0; prev.addEventListener('click', () => { historyPage = Math.max(0, historyPage - 1); loadHistory(); });
+  const next = document.createElement('button'); next.className = 'btn btn-outline btn-small'; next.type = 'button'; next.textContent = 'Next →'; next.disabled = count < 50; next.addEventListener('click', () => { historyPage += 1; loadHistory(); });
+  const label = document.createElement('span'); label.className = 'field-help'; label.textContent = 'Page ' + (historyPage + 1);
+  pager.append(prev, label, next);
+}
+
+async function deleteHistoryItem(button, filename) {
+  if (!window.confirm('Delete this generation permanently?')) return;
+  button.disabled = true;
+  try {
+    await apiFetch('/api/history/delete', { method: 'POST', body: JSON.stringify({ filename }) });
+    button.closest('.history-item')?.remove();
+    setInlineError('historyError', '');
+  } catch (e) {
+    button.disabled = false;
+    setInlineError('historyError', 'Could not delete generation: ' + e.message);
+  }
 }
 
 function openHistory() {
-  $('historyPanel').classList.add('open');
-  $('historyOverlay').classList.add('open');
+  setInlineError('historyError', '');
+  openDialog('historyPanel', 'historyOverlay');
 }
 function closeHistory() {
-  $('historyPanel').classList.remove('open');
-  $('historyOverlay').classList.remove('open');
+  closeDialog('historyPanel', 'historyOverlay');
 }
 
 async function cleanHistory() {
-  await apiFetch('/api/history/clean', { method: 'POST', body: JSON.stringify({ days: 30 }) });
-  loadHistory();
+  if (!window.confirm('Delete generations older than 30 days? This cannot be undone.')) return;
+  const button = $('cleanHistoryBtn');
+  button.disabled = true;
+  try {
+    await apiFetch('/api/history/clean', { method: 'POST', body: JSON.stringify({ days: 30 }) });
+    historyPage = 0;
+    await loadHistory();
+    setInlineError('historyError', '');
+  } catch (e) {
+    setInlineError('historyError', 'Could not clean history: ' + e.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function escHtml(s) {
