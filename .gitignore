@@ -31,6 +31,10 @@ node_modules/
 
 # --- Accidental artifacts ---
 *_io.BytesIO*
+:memory:*
+
+# --- Local agent instructions ---
+AGENTS.md
 
 # --- OS / editor ---
 .DS_Store
