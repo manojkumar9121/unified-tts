@@ -10,6 +10,7 @@ class TestIsolation:
     def test_fixture_overrides_preconfigured_runtime_paths(self):
         import os
         from pathlib import Path
+
         import tests.conftest as test_config
 
         configured_root = getattr(test_config._TMP, "name", test_config._TMP)
@@ -20,8 +21,9 @@ class TestIsolation:
 
 class TestLifespan:
     def test_context_starts_and_stops_monitor_then_shuts_down(self, monkeypatch):
-        import server
         from fastapi.testclient import TestClient
+
+        import server
 
         events = []
 

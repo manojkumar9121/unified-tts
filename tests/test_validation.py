@@ -1,7 +1,6 @@
 """Tests for server-side engine-param validation helpers."""
 
 import pytest
-
 from fastapi import HTTPException
 
 import server

@@ -36,7 +36,7 @@ from tts_engine import (
     delete_generations_older_than,
     engine_ids,
     get_all_engines,
-    get_artifacts,
+    get_artifacts,  # noqa: F401  (re-exported: tests call server.get_artifacts)
     get_generations,
     init_db,
     set_audio8_manager,
@@ -883,7 +883,11 @@ def _schedule_preview_cleanup(filepath: Path, delay_seconds: float = 600) -> Non
 
 def _schedule_batch_progress_cleanup(batch_id: str, delay_seconds: float = 60) -> None:
     """Forget completed batch progress using the shared cleanup scheduler."""
-    _cleanup_scheduler.schedule(delay_seconds, lambda: _batch_progress.pop(batch_id, None))
+
+    def _forget() -> None:
+        _batch_progress.pop(batch_id, None)
+
+    _cleanup_scheduler.schedule(delay_seconds, _forget)
 
 
 def _safe_output_path(filename: str) -> Path | None:

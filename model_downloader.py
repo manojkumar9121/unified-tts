@@ -170,7 +170,7 @@ def _audio8_file_list() -> list[dict]:
             continue
         remote_path = item.get("path")
         if not isinstance(remote_path, str):
-            raise ValueError("Hugging Face tree entry is missing a file path")
+            raise TypeError("Hugging Face tree entry is missing a file path")
         _safe_destination(AUDIO8_MODEL_DIR, remote_path)
         raw_size = item.get("size", 0)
         size = int(raw_size) if isinstance(raw_size, (int, float)) and raw_size > 0 else None
