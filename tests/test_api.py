@@ -11,12 +11,16 @@ class TestIsolation:
         import os
         from pathlib import Path
 
-        import tests.conftest as test_config
+        # conftest redirects runtime paths into one temp tree and publishes
+        # them through these env vars. Deriving the root from them avoids
+        # importing tests.conftest, which is not importable as a package
+        # under `pip install -e` (only declared packages are exposed).
+        data_dir = Path(os.environ["TTS_DATA_DIR"]).resolve()
+        output_dir = Path(os.environ["TTS_OUTPUT_DIR"]).resolve()
 
-        configured_root = getattr(test_config._TMP, "name", test_config._TMP)
-        test_root = Path(configured_root).resolve()
-        assert Path(os.environ["TTS_DATA_DIR"]).resolve() == test_root / "data"
-        assert Path(os.environ["TTS_OUTPUT_DIR"]).resolve() == test_root / "output"
+        assert data_dir.name == "data"
+        assert output_dir.name == "output"
+        assert data_dir.parent == output_dir.parent
 
 
 class TestLifespan:

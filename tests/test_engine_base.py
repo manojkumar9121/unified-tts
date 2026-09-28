@@ -13,6 +13,23 @@ from tts_engine import (
 )
 
 
+def _lock_is_held(lock: threading.RLock) -> bool:
+    """Whether ``lock`` is currently held by another thread.
+
+    ``RLock.locked()`` only exists on Python 3.14+, but CI still runs the
+    3.10/3.12 matrix, so fall back to a non-blocking acquire probe. The probe
+    is exact unless the calling thread already holds the lock, which is fine
+    for the in-line generate() calls that use this.
+    """
+    locked = getattr(lock, "locked", None)
+    if locked is not None:
+        return locked()
+    if lock.acquire(blocking=False):
+        lock.release()
+        return False
+    return True
+
+
 class TestRegistry:
     def test_all_engines_registered(self):
         assert set(engine_ids()) == {"piper", "kokoro", "kitten-tts", "audio8", "edge-tts", "gtts"}
@@ -101,9 +118,9 @@ class TestBasePipeline:
     def test_serialization_lock_is_honored(self, tmp_path):
         eng = self.FakeEngine(str(tmp_path))
         eng.serialize_generation = True
-        assert not eng._engine_lock.locked(), "lock should be free before use"
+        assert not _lock_is_held(eng._engine_lock), "lock should be free before use"
         eng.generate("hi")
-        assert not eng._engine_lock.locked(), "lock must be released after generate"
+        assert not _lock_is_held(eng._engine_lock), "lock must be released after generate"
 
     def test_pitch_shift_fallback_without_librosa(self, tmp_path, monkeypatch):
         # Simulate a core-only install: librosa import fails inside the
