@@ -7,7 +7,10 @@
 import re
 from pathlib import Path
 
-import tomllib
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on the 3.10 CI leg
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 
